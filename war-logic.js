@@ -14,10 +14,15 @@ window.warRoom = function() {
         // FIXED SEASON ANCHOR: Monday, Jan 5, 2026, 03:00 CET
         seasonStart: new Date("2026/01/05 03:00:00"),
 
+        // --- INIT ---
         async init() {
             this.client = supabase.createClient(this.sbUrl, this.sbKey);
-            this.myAllianceName = localStorage.getItem('war_ref_alliance') || '';
+            
+            // Restore persistent settings from local storage
+            const savedAlliance = localStorage.getItem('war_ref_alliance');
+            if (savedAlliance) this.myAllianceName = savedAlliance;
             this.useServerTime = localStorage.getItem('war_time_mode') === 'true';
+            
             await this.fetchData();
             this.updateClock();
             setInterval(() => this.updateClock(), 1000);
@@ -50,7 +55,9 @@ window.warRoom = function() {
             const now = new Date();
             const cetTime = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             const serverDate = new Date(cetTime.getTime() - (3 * 60 * 60 * 1000));
-            this.displayClock = (this.useServerTime ? serverDate : cetTime).toLocaleTimeString('en-GB', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+            const activeTime = this.useServerTime ? serverDate : cetTime;
+            
+            this.displayClock = activeTime.toLocaleTimeString('en-GB', {hour: '2-digit', minute:'2-digit', second:'2-digit'}) + (this.useServerTime ? ' [SRV]' : ' [CET]');
 
             if (cetTime < this.seasonStart) {
                 this.currentRoundText = "PRE-SEASON";
@@ -66,10 +73,11 @@ window.warRoom = function() {
                 const roundNum = ((this.week - 1) * 2) + ((day >= 1 && day <= 3 && day !== 0) ? 1 : 2);
                 this.currentRoundText = `Round ${roundNum}`;
 
-                let ms = [{d:1,h:3,n:'Grouping Phase'},{d:2,h:3,n:'Declaration Stage'},{d:3,h:3,n:'Invitation Phase'},{d:3,h:12,n:'Preparation'},{d:3,h:12.5,n:'WAR ACTIVE'},{d:4,h:3,n:'Grouping Phase'},{d:5,h:3,n:'Declaration Stage'},{d:6,h:3,n:'Invitation Phase'},{d:6,h:12,n:'Preparation'},{d:6,h:12.5,n:'WAR ACTIVE'},{d:0,h:3,n:'Rest Phase'}];
+                let ms = [{d:1,h:3,n:'Grouping Phase',a:'Brackets forming.'},{d:2,h:3,n:'Declaration Window',a:'R4+ Declare War!'},{d:3,h:3,n:'Invitation Phase',a:'Invite defense allies.'},{d:3,h:12,n:'Preparation',a:'Missile window.'},{d:3,h:12.5,n:'WAR ACTIVE',a:'WH -> Center'},{d:4,h:3,n:'Grouping Phase',a:'Round 2 brackets.'},{d:5,h:3,n:'Declaration Window',a:'R4+ Declare War!'},{d:6,h:3,n:'Invitation Phase',a:'Invite defense allies.'},{d:6,h:12,n:'Preparation',a:'Missile window.'},{d:6,h:12.5,n:'WAR ACTIVE',a:'WH -> Center'},{d:0,h:3,n:'Rest Phase',a:'Results analysis.'}];
                 let next = ms.find(m => (day < m.d) || (day === m.d && cetTime.getHours() < m.h)) || ms[0];
                 const curr = [...ms].reverse().find(m => (day > m.d) || (day === m.d && cetTime.getHours() >= m.h)) || ms[ms.length-1];
-                this.currentPhase = curr.n; this.phaseAction = "Group-locked declaration active.";
+                this.currentPhase = curr.n; this.phaseAction = curr.a;
+                
                 let target = new Date(cetTime);
                 target.setDate(target.getDate() + (next.d - day + (next.d < day || (next.d === day && next.h <= cetTime.getHours()) ? 7 : 0)));
                 target.setHours(next.h, 0, 0, 0);
@@ -78,6 +86,7 @@ window.warRoom = function() {
             }
         },
 
+        // --- DATA SYNC ---
         async fetchData() {
             this.loading = true;
             try {
@@ -88,21 +97,31 @@ window.warRoom = function() {
                     this.client.from('history').select('*').order('timestamp', { ascending: false })
                 ]);
                 this.alliances = a.data || [];
-                // Mapping using confirmed elite_forces_view column names
-                this.players = (p.data || []).map(r => ({ tag: r.tag, name: r.player_name, thp: Number(r.player_thp), faction: r.faction, server: r.server }));
+                // Naming aligned with your SQL 'elite_forces_view'
+                this.players = (p.data || []).map(r => ({ 
+                    tag: r.tag, 
+                    name: r.player_name, 
+                    thp: Number(r.player_thp) || 0, 
+                    faction: r.faction, 
+                    server: r.server 
+                }));
                 this.cities = c.data || [];
                 this.history = h.data || [];
-                this.debugStatus = `Connected: ${this.alliances.length} Alliances`;
-            } catch (e) { this.debugStatus = "Supabase Connection Error"; }
+                this.debugStatus = `OK: ${this.alliances.length} Alliances`;
+            } catch (e) { 
+                this.debugStatus = "Database Connection Error";
+                console.error(e);
+            }
             this.loading = false;
         },
 
+        // --- COPPER MATH ---
         getObservedRate(tag) {
             const snps = this.history.filter(x => x.tag.toLowerCase() === tag.toLowerCase());
             if (snps.length < 2) return 0;
             const cDiff = snps[0].copper - snps[1].copper;
             const hDiff = (new Date(snps[0].timestamp) - new Date(snps[1].timestamp)) / 3600000;
-            // Snap rate to nearest 100 as requested
+            // Round rate to nearest 100
             return hDiff > 0.01 ? Math.round((cDiff / hDiff) / 100) * 100 : 0;
         },
 
@@ -123,21 +142,42 @@ window.warRoom = function() {
             });
         },
 
+        // --- GROUPING LOGIC ---
         getGroupedFaction(fName) {
             const sorted = this.factionData.filter(a => a.faction === fName).sort((a,b) => b.stash - a.stash);
             const groups = []; 
-            const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
+            
+            // Dynamic Grouping Sizes based on your instructions
+            let step = 10; let catchAllStart = 30; let catchAllEnd = 50;
+            if (this.week === 2) { step = 6; }
+            if (this.week >= 3) { step = 3; catchAllEnd = 100; }
+
             let i = 0;
-            while (i < 30 && i < sorted.length) {
-                groups.push({ id: Math.floor(i/step)+1, label: `Rank ${i+1}-${Math.min(i+step, 30)}`, alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) });
+            while (i < catchAllStart && i < sorted.length) {
+                const groupAlliances = sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 }));
+                if (groupAlliances.length > 0) {
+                    groups.push({ 
+                        id: Math.floor(i/step)+1, 
+                        label: `Rank ${i+1}-${Math.min(i+step, catchAllStart)}`, 
+                        alliances: groupAlliances 
+                    });
+                }
                 i += step;
             }
-            if (sorted.length > 30) groups.push({ id: groups.length + 1, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) });
+            // Catch-all group (Group 4, 6, or 11 depending on week)
+            if (sorted.length > catchAllStart) {
+                groups.push({ 
+                    id: groups.length + 1, 
+                    label: `Rank ${catchAllStart+1}-${catchAllEnd}`, 
+                    alliances: sorted.slice(catchAllStart, catchAllEnd).map((it, idx) => ({ ...it, factionRank: catchAllStart+idx+1 })) 
+                });
+            }
             return groups;
         },
 
+        // --- UI GETTERS ---
         get groupedForces() {
-            if (this.tab !== 'forces') return {}; 
+            if (this.tab !== 'forces') return {}; // Optimize: Only compute if tab is active
             const groups = {};
             this.alliances.forEach(a => {
                 const aPlayers = this.players.filter(p => p.tag === a.tag).sort((x,y) => y.thp - x.thp);
@@ -150,6 +190,11 @@ window.warRoom = function() {
             return groups;
         },
 
+        isAllyServer(group) {
+            const me = this.alliances.find(a => a.name === this.myAllianceName);
+            return me ? group.some(a => a.faction === me.faction) : true;
+        },
+
         get knsGroups() { return this.getGroupedFaction('Kage no Sato'); },
         get kbtGroups() { return this.getGroupedFaction('Koubutai'); },
         get knsTotalStash() { return this.factionData.filter(a => a.faction.includes('Kage')).reduce((s, a) => s + a.stash, 0); },
@@ -157,19 +202,18 @@ window.warRoom = function() {
         getPlayersForAlliance(tag) { const a = Object.values(this.groupedForces).flat().find(x => x.tag === tag); return a ? a.playerRoster : []; },
         getPassiveRate(tag) { const c = this.cities.find(x => (x.tag||'').toLowerCase() === tag.toLowerCase()); return c ? (Number(c.l1||0)*100)+(Number(c.l2||0)*200)+(Number(c.l3||0)*300)+(Number(c.l4||0)*400)+(Number(c.l5||0)*500)+(Number(c.l6||0)*600) : 0; },
         isMatch(t) { const me = this.alliances.find(a => a.name === this.myAllianceName); if (!me || t.faction === me.faction || t.faction === 'Unassigned') return false; const meG = this.getGroupedFaction(me.faction).find(g => g.alliances.some(x => x.tag === me.tag))?.id; const taG = this.getGroupedFaction(t.faction).find(g => g.alliances.some(x => x.tag === t.tag))?.id; return meG === taG; },
-        isAllyServer(group) { const me = this.alliances.find(a => a.name === this.myAllianceName); return me ? group.some(a => a.faction === me.faction) : true; },
         matchesSearch(a) { const q = this.searchQuery.toLowerCase(); return (a.name||'').toLowerCase().includes(q) || (a.tag||'').toLowerCase().includes(q); },
-        toggleAlliance(tag) { this.openAlliances = this.openAlliances.includes(tag) ? this.openAlliances.filter(x => x !== tag) : [...this.openAlliances, tag]; },
+        toggleAlliance(tag) { this.openAlliances = this.isAllianceOpen(tag) ? this.openAlliances.filter(x => x !== tag) : [...this.openAlliances, tag]; },
         isAllianceOpen(tag) { return this.openAlliances.includes(tag); },
         toggleServerCollapse(s) { this.openServers = this.isServerOpen(s) ? this.openServers.filter(x => x !== s) : [...this.openServers, s]; },
         isServerOpen(s) { return this.openServers.includes(s); },
+        get filteredRefList() { const list = [...this.alliances].sort((a,b) => (a.name||'').localeCompare(b.name)); return this.refSearch ? list.filter(a => (a.tag||'').toLowerCase().includes(this.refSearch.toLowerCase())) : list; },
         login() { if (this.passInput === 'KING') this.authenticated = true; },
         getCityCount(n) { const c = this.cities.find(x => (x.tag||'').toLowerCase() === this.editTag.toLowerCase()); return c ? Number(c['l'+n] || 0) : 0; },
         getTotalCities() { const c = this.cities.find(x => (x.tag||'').toLowerCase() === this.editTag.toLowerCase()); return c ? [1,2,3,4,5,6].reduce((s, i) => s + Number(c['l'+i] || 0), 0) : 0; },
         updateCity(n, d) { let c = this.cities.find(x => (x.tag||'').toLowerCase() === this.editTag.toLowerCase()); if (!c) { c = { tag: this.editTag.toLowerCase(), l1:0,l2:0,l3:0,l4:0,l5:0,l6:0 }; this.cities.push(c); } if (d > 0 && this.getTotalCities() >= 6) return alert("Max 6 cities!"); c['l'+n] = Math.max(0, Number(c['l'+n] || 0) + d); if (!this.modifiedTags.includes(this.editTag)) this.modifiedTags.push(this.editTag); },
         exportCities() { const csv = Papa.unparse(this.cities); const b = new Blob([csv],{type:'text/csv'}); const u = window.URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = 'cities.csv'; a.click(); this.modifiedTags = []; },
-        copyScoutPrompt() { navigator.clipboard.writeText("Hi Team! Please provide: [Tag], [Alliance], [Stash], [Time]"); alert("Scout Prompt Copied!"); },
-        get filteredRefList() { const list = [...this.alliances].sort((a,b) => (a.name||'').localeCompare(b.name)); return this.refSearch ? list.filter(a => (a.tag||'').toLowerCase().includes(this.refSearch.toLowerCase())) : list; },
+        copyScoutPrompt() { navigator.clipboard.writeText("Please provide: [Tag], [Alliance], [Stash], [Time]"); alert("Scout Prompt Copied!"); },
         formatNum(v) { return Math.floor(v || 0).toLocaleString(); },
         formatPower(v) { return (v/1000000000).toFixed(2) + 'B'; }
     }
