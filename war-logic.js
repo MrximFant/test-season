@@ -1,17 +1,21 @@
 window.warRoom = function() {
     return {
-        version: '2.2.5',
+        // --- CONFIG ---
+        version: '2.2.6', 
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
-        tab: 'warroom', loading: true, mobileMenu: false, searchQuery: '', refSearch: '',
-        alliances: [], players: [], openGroups: [], openServers: [], openAlliances: [],
+        // --- STATE ---
+        tab: 'warroom', loading: true, mobileMenu: false, searchQuery: '', refSearch: '', debugStatus: 'Ready',
+        alliances: [], players: [], 
+        openGroups: [], openServers: [], openAlliances: [],
         authenticated: false, passInput: '', editTag: '', managerName: '',
         importData: '', importMode: 'scout', isImporting: false,
         displayClock: '', currentRoundText: '', currentPhase: '', phaseCountdown: '',
         seasonStart: new Date("2026/01/05 03:00:00"),
 
         async init() {
+            // Cache Buster
             const storedVersion = localStorage.getItem('war_app_version');
             if (storedVersion !== this.version) {
                 localStorage.clear();
@@ -19,6 +23,7 @@ window.warRoom = function() {
                 window.location.reload(true);
                 return;
             }
+
             this.client = supabase.createClient(this.sbUrl, this.sbKey);
             this.myAllianceName = localStorage.getItem('war_ref_alliance') || '';
             
@@ -42,14 +47,22 @@ window.warRoom = function() {
         },
 
         async fetchData() {
+            this.loading = true;
             try {
                 const [resM, resP] = await Promise.all([
                     this.client.from('war_master_view').select('*'),
                     this.client.from('players').select('*').order('thp', { ascending: false })
                 ]);
+                
+                if (resM.error) throw resM.error;
+
                 this.alliances = resM.data || [];
                 this.players = resP.data || [];
-            } catch (e) { console.error(e); }
+                this.debugStatus = `Intel Synced: ${this.alliances.length} Alliances`;
+            } catch (e) { 
+                console.error(e);
+                this.debugStatus = "Sync Error";
+            }
             this.loading = false;
         },
 
@@ -60,8 +73,8 @@ window.warRoom = function() {
             const warTime = this.getNextWarTime();
 
             return this.alliances.map(a => {
-                // Determine rate: Use observed rate if scouts exist, otherwise use passive city rate
-                const rate = a.observed_rate > 0 ? a.observed_rate : a.city_rate;
+                // Rate logic: observed rate (scouts) first, then city passive rate
+                const rate = Number(a.observed_rate) > 0 ? Number(a.observed_rate) : Number(a.city_rate || 0);
                 
                 const scoutTime = a.last_scout_time ? new Date(a.last_scout_time) : cet;
                 const hoursSinceScout = Math.max(0, (cet - scoutTime) / 3600000);
@@ -80,10 +93,10 @@ window.warRoom = function() {
             let target = new Date(cet);
             const day = cet.getDay();
 
-            // War is Wednesday (3) and Saturday (6) at 15:30
-            if (day < 3 || (day === 3 && cet.getHours() < 15) || (day === 3 && cet.getHours() === 15 && cet.getMinutes() < 30)) {
+            // Target Wed/Sat 15:30 CET
+            if (day < 3 || (day === 3 && (cet.getHours() < 15 || (cet.getHours() === 15 && cet.getMinutes() < 30)))) {
                 target.setDate(cet.getDate() + (3 - day));
-            } else if (day < 6 || (day === 6 && cet.getHours() < 15) || (day === 6 && cet.getHours() === 15 && cet.getMinutes() < 30)) {
+            } else if (day < 6 || (day === 6 && (cet.getHours() < 15 || (cet.getHours() === 15 && cet.getMinutes() < 30)))) {
                 target.setDate(cet.getDate() + (6 - day));
             } else {
                 target.setDate(cet.getDate() + (7 - day + 3));
@@ -101,8 +114,8 @@ window.warRoom = function() {
             this.week = Math.max(1, Math.min(4, Math.floor(diffDays / 7) + 1));
             const day = cet.getDay();
             
-            // Rounds: R1 (Mon 03:00 - Thu 03:00), R2 (Thu 03:00 - Mon 03:00)
-            const isR1 = (day >= 1 && day < 4) || (day === 4 && cet.getHours() < 3);
+            // Round 1: Mon-Wed, Round 2: Thu-Sun
+            const isR1 = (day >= 1 && day <= 3);
             this.currentRoundText = `Week ${this.week} | Round ${isR1 ? 1 : 2}`;
 
             let ms = [
@@ -126,14 +139,21 @@ window.warRoom = function() {
             const sorted = this.factionData
                 .filter(a => a.faction.toLowerCase().includes(fName.toLowerCase()))
                 .sort((a,b) => b.stash - a.stash);
+
             const groups = [];
             const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
             let i = 0;
             while (i < 30 && i < sorted.length) {
-                groups.push({ id: Math.floor(i/step)+1, label: `Rank ${i+1}-${Math.min(i+step, 30)}`, alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) });
+                groups.push({ 
+                    id: Math.floor(i/step)+1, 
+                    label: `Rank ${i+1}-${Math.min(i+step, 30)}`, 
+                    alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) 
+                });
                 i += step;
             }
-            if (sorted.length > 30) groups.push({ id: groups.length + 1, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) });
+            if (sorted.length > 30) {
+                groups.push({ id: groups.length + 1, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) });
+            }
             return groups;
         },
 
@@ -152,6 +172,10 @@ window.warRoom = function() {
             return groups;
         },
 
+        getPlayersForAlliance(id) {
+            return this.players.filter(p => p.alliance_id === id);
+        },
+
         // --- HELPERS ---
         toggleGroup(f, id) { const key = `${f}-${id}`; this.openGroups = this.openGroups.includes(key) ? this.openGroups.filter(k => k !== key) : [...this.openGroups, key]; },
         isGroupOpen(f, id) { return this.openGroups.includes(`${f}-${id}`); },
@@ -159,15 +183,25 @@ window.warRoom = function() {
         isServerOpen(s) { return this.openServers.includes(s); },
         toggleAlliance(id) { this.openAlliances = this.openAlliances.includes(id) ? this.openAlliances.filter(x => x !== id) : [...this.openAlliances, id]; },
         isAllianceOpen(id) { return this.openAlliances.includes(id); },
-        getPlayersForAlliance(id) { return this.players.filter(p => p.alliance_id === id); },
         formatNum(v) { return Math.floor(v || 0).toLocaleString(); },
         formatPower(v) { return (v/1000000000).toFixed(2) + 'B'; },
+        matchesSearch(a) { const q = this.searchQuery.toLowerCase(); return !q || a.name.toLowerCase().includes(q) || a.tag.toLowerCase().includes(q); },
+        isAllyServer(group) { const me = this.alliances.find(a => a.name === this.myAllianceName); return me ? group.some(a => a.faction === me.faction) : true; },
+        getFilteredRefList() { return [...this.alliances].sort((a,b) => a.name.localeCompare(b.name)).filter(a => !this.refSearch || a.tag.toLowerCase().includes(this.refSearch.toLowerCase())); },
+        
+        isMatch(t) { 
+            const me = this.alliances.find(a => a.name === this.myAllianceName); 
+            if (!me || !t.faction || !me.faction || t.faction === me.faction || t.faction === 'Unassigned') return false; 
+            const myG = this.getGroupedFaction(me.faction).find(g => g.alliances.some(x => x.id === me.id))?.id;
+            const taG = this.getGroupedFaction(t.faction).find(g => g.alliances.some(x => x.tag === t.tag))?.id;
+            return myG && taG && myG === taG; 
+        },
+
+        // --- ADMIN ---
         copyScoutPrompt() { 
-            const prompt = `Convert the following OCR text into a JSON array. 
-            Format: [{"tag": "MAD1", "name": "AllianceName", "stash": 12345678}]. 
-            OCR Data: \n${this.importData}`;
+            const prompt = `Convert the following OCR text into a JSON array for game data import. OCR Data: \n${this.importData}`;
             navigator.clipboard.writeText(prompt);
-            alert("AI Prompt Copied! Paste into ChatGPT/Claude.");
+            alert("AI Prompt Copied!");
         },
         async login(isAuto = false) {
             const { data } = await this.client.from('authorized_managers').select('manager_name').eq('secret_key', this.passInput).single();
