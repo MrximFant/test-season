@@ -10,16 +10,20 @@ window.warRoom = function() {
         alliances: [], players: [], history: [], cities: [], openAlliances: [], openServers: [],
         authenticated: false, passInput: '', editTag: '', modifiedTags: [], myAllianceName: '', 
         useServerTime: false, displayClock: '',
-
         seasonStart: new Date("2026/01/05 03:00:00"),
 
         async init() {
-            this.client = supabase.createClient(this.sbUrl, this.sbKey);
-            this.myAllianceName = localStorage.getItem('war_ref_alliance') || '';
-            this.useServerTime = localStorage.getItem('war_time_mode') === 'true';
-            await this.fetchData();
-            this.updateClock();
-            setInterval(() => this.updateClock(), 1000);
+            try {
+                this.client = supabase.createClient(this.sbUrl, this.sbKey);
+                this.myAllianceName = localStorage.getItem('war_ref_alliance') || '';
+                this.useServerTime = localStorage.getItem('war_time_mode') === 'true';
+                await this.fetchData();
+                this.updateClock();
+                setInterval(() => this.updateClock(), 1000);
+            } catch (err) {
+                console.error("Init Failure:", err);
+                this.debugStatus = "Init Error";
+            }
         },
 
         saveSettings() {
@@ -27,14 +31,15 @@ window.warRoom = function() {
             localStorage.setItem('war_time_mode', this.useServerTime);
         },
 
-        // --- CLOCK & CALENDAR ---
         getNextWarTime() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             let war = new Date(cet);
             const warDays = [3, 6]; 
             let found = false;
-            while (!found) {
+            let safety = 0;
+            while (!found && safety < 10) {
+                safety++;
                 if (warDays.includes(war.getDay())) {
                     war.setHours(15, 30, 0, 0);
                     if (war > cet) { found = true; break; }
@@ -78,30 +83,40 @@ window.warRoom = function() {
             }
         },
 
-        // --- DATA FETCHING ---
         async fetchData() {
             this.loading = true;
             try {
-                const [a, p, c, h] = await Promise.all([
-                    this.client.from('alliances').select('*'),
-                    this.client.from('elite_forces_view').select('*'),
-                    this.client.from('cities').select('*'),
-                    this.client.from('history').select('*').order('timestamp', { ascending: false })
-                ]);
-                this.alliances = a.data || [];
-                this.players = (p.data || []).map(r => ({ tag: r.tag, name: r.player_name, thp: Number(r.player_thp) || 0, faction: r.faction, server: r.server }));
-                this.cities = c.data || [];
-                this.history = h.data || [];
+                // Using .select() with no filter to get all, but added error handling
+                const resA = await this.client.from('alliances').select('*');
+                const resP = await this.client.from('elite_forces_view').select('*');
+                const resC = await this.client.from('cities').select('*');
+                const resH = await this.client.from('history').select('*').order('timestamp', { ascending: false });
+                
+                if (resA.error) throw resA.error;
+
+                this.alliances = resA.data || [];
+                this.players = (resP.data || []).map(r => ({
+                    tag: r.tag,
+                    name: r.player_name || r.name || 'Unknown',
+                    thp: Number(r.player_thp || r.thp || 0),
+                    faction: r.faction,
+                    server: r.server
+                }));
+                this.cities = resC.data || [];
+                this.history = resH.data || [];
                 this.debugStatus = `Connected: ${this.alliances.length} Alliances`;
-            } catch (e) { this.debugStatus = "Supabase Sync Error"; }
+            } catch (e) { 
+                console.error("Fetch Error:", e);
+                this.debugStatus = "Supabase Sync Error"; 
+            }
             this.loading = false;
         },
 
-        // --- CALCULATION ENGINE ---
         getObservedRate(tag) {
-            const snps = this.history.filter(x => x.tag?.toLowerCase() === tag?.toLowerCase());
+            if (!tag) return 0;
+            const snps = this.history.filter(x => x.tag && x.tag.toLowerCase() === tag.toLowerCase());
             if (snps.length < 2) return 0;
-            const cDiff = Number(snps[0].copper) - Number(snps[1].copper);
+            const cDiff = Number(snps[0].copper || 0) - Number(snps[1].copper || 0);
             const hDiff = (new Date(snps[0].timestamp) - new Date(snps[1].timestamp)) / 3600000;
             return hDiff > 0.01 ? Math.round((cDiff / hDiff) / 100) * 100 : 0;
         },
@@ -109,39 +124,60 @@ window.warRoom = function() {
         get factionData() {
             const nextWar = this.getNextWarTime();
             return this.alliances.map(a => {
-                const snps = this.history.filter(x => x.tag?.toLowerCase() === a.tag?.toLowerCase());
+                const snps = this.history.filter(x => x.tag && x.tag.toLowerCase() === (a.tag || '').toLowerCase());
                 const last = snps[0] || { copper: 0, timestamp: new Date() };
                 const rate = this.getObservedRate(a.tag);
                 const hoursSince = Math.max(0, (new Date() - new Date(last.timestamp)) / 3600000);
                 const hoursTillWar = Math.max(0, (nextWar - new Date()) / 3600000);
                 return { 
                     ...a, 
-                    stash: Number(last.copper) + (rate * hoursSince), 
-                    warStash: Number(last.copper) + (rate * (hoursSince + hoursTillWar)), 
+                    stash: Number(last.copper || 0) + (rate * hoursSince), 
+                    warStash: Number(last.copper || 0) + (rate * (hoursSince + hoursTillWar)), 
                     rate: rate 
                 };
             });
         },
 
-        // --- GROUPING & TOTALS ---
         getGroupedFaction(fName) {
-            const sorted = this.factionData.filter(a => a.faction && a.faction.includes(fName)).sort((a,b) => b.stash - a.stash);
+            if (!this.alliances.length) return [];
+            const sorted = this.factionData
+                .filter(a => a.faction && a.faction.toLowerCase().includes(fName.toLowerCase()))
+                .sort((a,b) => b.stash - a.stash);
+            
             const groups = []; 
             const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
             let i = 0;
             while (i < 30 && i < sorted.length) {
-                groups.push({ id: Math.floor(i/step)+1, label: `Rank ${i+1}-${Math.min(i+step, 30)}`, alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) });
+                groups.push({ 
+                    id: Math.floor(i/step)+1, 
+                    label: `Rank ${i+1}-${Math.min(i+step, 30)}`, 
+                    alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) 
+                });
                 i += step;
             }
-            if (sorted.length > 30) groups.push({ id: groups.length + 1, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) });
+            if (sorted.length > 30) {
+                groups.push({ 
+                    id: groups.length + 1, 
+                    label: "Rank 31-100", 
+                    alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) 
+                });
+            }
             return groups;
         },
 
         get knsGroups() { return this.getGroupedFaction('Kage').map(g => ({ ...g, alliances: g.alliances.filter(a => this.matchesSearch(a)) })); },
         get kbtGroups() { return this.getGroupedFaction('Koubu').map(g => ({ ...g, alliances: g.alliances.filter(a => this.matchesSearch(a)) })); },
 
-        get knsTotalStash() { return this.factionData.filter(a => a.faction?.includes('Kage')).reduce((s, a) => s + a.stash, 0); },
-        get kbtTotalStash() { return this.factionData.filter(a => a.faction?.includes('Koubu')).reduce((s, a) => s + a.stash, 0); },
+        get knsTotalStash() { 
+            return this.factionData
+                .filter(a => a.faction && a.faction.toLowerCase().includes('kage'))
+                .reduce((s, a) => s + (a.stash || 0), 0); 
+        },
+        get kbtTotalStash() { 
+            return this.factionData
+                .filter(a => a.faction && a.faction.toLowerCase().includes('koubu'))
+                .reduce((s, a) => s + (a.stash || 0), 0); 
+        },
 
         get groupedForces() {
             if (this.tab !== 'forces') return {};
@@ -157,7 +193,6 @@ window.warRoom = function() {
             return groups;
         },
 
-        // --- ADMIN & WRITING ---
         async saveCitiesToDB() {
             if (!this.editTag) return;
             const cityData = this.cities.find(c => c.tag.toLowerCase() === this.editTag.toLowerCase());
@@ -166,27 +201,33 @@ window.warRoom = function() {
             this.debugStatus = "Writing to Database...";
             const { error } = await this.client.from('cities').upsert({
                 tag: cityData.tag.toLowerCase(),
-                l1: cityData.l1, l2: cityData.l2, l3: cityData.l3,
-                l4: cityData.l4, l5: cityData.l5, l6: cityData.l6
+                l1: cityData.l1 || 0, l2: cityData.l2 || 0, l3: cityData.l3 || 0,
+                l4: cityData.l4 || 0, l5: cityData.l5 || 0, l6: cityData.l6 || 0
             });
 
             if (error) {
                 alert("Supabase Write Error: " + error.message);
                 this.debugStatus = "Write Error";
             } else {
-                alert(`Cities for [${this.editTag}] successfully updated in DB!`);
+                alert(`Cities for [${this.editTag}] updated!`);
                 this.debugStatus = "DB Updated";
                 this.modifiedTags = this.modifiedTags.filter(t => t !== this.editTag);
+                await this.fetchData(); // Refresh
             }
         },
 
-        // --- HELPERS ---
         get filteredRefList() {
             const list = [...this.alliances].sort((a,b) => (a.name||'').localeCompare(b.name));
-            return this.refSearch ? list.filter(a => a.tag?.toLowerCase().includes(this.refSearch.toLowerCase())) : list;
+            return this.refSearch ? list.filter(a => (a.tag||'').toLowerCase().includes(this.refSearch.toLowerCase())) : list;
         },
-        isAllyServer(group) { const me = this.alliances.find(a => a.name === this.myAllianceName); return me ? group.some(a => a.faction === me.faction) : true; },
-        getPlayersForAlliance(tag) { const a = Object.values(this.groupedForces).flat().find(x => x.tag === tag); return a ? a.playerRoster : []; },
+        isAllyServer(group) { 
+            const me = this.alliances.find(a => a.name === this.myAllianceName); 
+            return me ? group.some(a => a.faction === me.faction) : true; 
+        },
+        getPlayersForAlliance(tag) { 
+            const a = Object.values(this.groupedForces).flat().find(x => x.tag === tag); 
+            return a ? a.playerRoster : []; 
+        },
         isMatch(t) { 
             const me = this.alliances.find(a => a.name === this.myAllianceName); 
             if (!me || !t.faction || !me.faction || t.faction === me.faction || t.faction === 'Unassigned') return false; 
@@ -194,14 +235,23 @@ window.warRoom = function() {
             const taG = this.getGroupedFaction(t.faction).find(g => g.alliances.some(x => x.tag === t.tag))?.id;
             return myG && taG && myG === taG; 
         },
-        matchesSearch(a) { const q = this.searchQuery.toLowerCase(); return !q || (a.name||'').toLowerCase().includes(q) || (a.tag||'').toLowerCase().includes(q); },
+        matchesSearch(a) { 
+            const q = this.searchQuery.toLowerCase(); 
+            return !q || (a.name||'').toLowerCase().includes(q) || (a.tag||'').toLowerCase().includes(q); 
+        },
         toggleAlliance(tag) { this.openAlliances = this.isAllianceOpen(tag) ? this.openAlliances.filter(x => x !== tag) : [...this.openAlliances, tag]; },
         isAllianceOpen(tag) { return this.openAlliances.includes(tag); },
         toggleServerCollapse(s) { this.openServers = this.isServerOpen(s) ? this.openServers.filter(x => x !== s) : [...this.openServers, s]; },
         isServerOpen(s) { return this.openServers.includes(s); },
         login() { if (this.passInput === 'KING') this.authenticated = true; },
-        getCityCount(n) { const c = this.cities.find(x => (x.tag||'').toLowerCase() === this.editTag.toLowerCase()); return c ? Number(c['l'+n] || 0) : 0; },
-        getTotalCities() { const c = this.cities.find(x => (x.tag||'').toLowerCase() === this.editTag.toLowerCase()); return c ? [1,2,3,4,5,6].reduce((s, i) => s + Number(c['l'+i] || 0), 0) : 0; },
+        getCityCount(n) { 
+            const c = this.cities.find(x => (x.tag||'').toLowerCase() === (this.editTag||'').toLowerCase()); 
+            return c ? Number(c['l'+n] || 0) : 0; 
+        },
+        getTotalCities() { 
+            const c = this.cities.find(x => (x.tag||'').toLowerCase() === (this.editTag||'').toLowerCase()); 
+            return c ? [1,2,3,4,5,6].reduce((s, i) => s + Number(c['l'+i] || 0), 0) : 0; 
+        },
         updateCity(n, d) { 
             let c = this.cities.find(x => (x.tag||'').toLowerCase() === this.editTag.toLowerCase()); 
             if (!c) { c = { tag: this.editTag.toLowerCase(), l1:0,l2:0,l3:0,l4:0,l5:0,l6:0 }; this.cities.push(c); } 
