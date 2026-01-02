@@ -1,6 +1,7 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
+        version: '2.2.1', 
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
@@ -14,13 +15,29 @@ window.warRoom = function() {
         seasonStart: new Date("2026/01/05 03:00:00"),
 
         async init() {
+            // CACHE BUSTER
+            const storedVersion = localStorage.getItem('war_app_version');
+            if (storedVersion !== this.version) {
+                localStorage.removeItem('war_data_cache');
+                localStorage.setItem('war_app_version', this.version);
+                window.location.reload(true);
+                return;
+            }
+
             try {
                 this.client = supabase.createClient(this.sbUrl, this.sbKey);
                 this.myAllianceName = localStorage.getItem('war_ref_alliance') || '';
                 
+                // Load Cache
+                const cached = localStorage.getItem('war_data_cache');
+                if (cached) {
+                    this.alliances = JSON.parse(cached);
+                    this.loading = false;
+                }
+
                 await this.fetchData();
 
-                // Auto-expand group for reference alliance
+                // Auto-expand
                 if (this.myAllianceName && this.alliances.length > 0) {
                     const me = this.alliances.find(a => a.name === this.myAllianceName);
                     if (me) {
@@ -30,7 +47,6 @@ window.warRoom = function() {
                     }
                 }
 
-                // Check for saved login
                 const savedKey = localStorage.getItem('war_admin_key');
                 if (savedKey) {
                     this.passInput = savedKey;
@@ -40,16 +56,13 @@ window.warRoom = function() {
                 this.updateClock();
                 setInterval(() => this.updateClock(), 1000);
             } catch (err) {
-                console.error("Initialization Error:", err);
-                this.debugStatus = "Load Error. Check Console.";
+                console.error(err);
+                this.debugStatus = "Load Error";
             }
         },
 
         async fetchData() {
-            this.loading = true;
-            this.debugStatus = "Fetching Tactical Intel...";
             try {
-                // 1. Fetch Master View and Full Roster
                 const [resMaster, resPlayers] = await Promise.all([
                     this.client.from('war_master_view').select('*'),
                     this.client.from('players').select('*').order('thp', { ascending: false })
@@ -57,18 +70,17 @@ window.warRoom = function() {
 
                 if (resMaster.error) throw resMaster.error;
 
-                // 2. Map Alliances (With Safety Guards to prevent crashes)
                 this.alliances = (resMaster.data || []).map(a => ({
                     id: a.id,
                     server: a.server || '?',
                     tag: (a.tag || '???').trim(),
-                    name: a.name || 'Unknown Alliance',
+                    name: a.name || 'Unknown',
                     faction: a.faction || 'Unassigned',
                     power: Number(a.power || 0),
                     rate: Number(a.hourly_rate || 0),
                     stash: Number(a.est_stash_now || 0),
                     warStash: Number(a.est_stash_war || 0),
-                    aceName: a.ace_name || 'No Data',
+                    aceName: a.ace_name || 'N/A',
                     aceTHP: Number(a.ace_thp || 0),
                     members: Number(a.member_count || 0),
                     cities: { 
@@ -78,20 +90,18 @@ window.warRoom = function() {
                 }));
 
                 this.players = resPlayers.data || [];
-                this.debugStatus = `Intel Synced: ${this.alliances.length} Units`;
+                localStorage.setItem('war_data_cache', JSON.stringify(this.alliances));
+                this.debugStatus = `Intel Synced`;
             } catch (e) {
-                console.error("Fetch Failure:", e);
-                this.debugStatus = "Database Connection Failed";
+                this.debugStatus = "Sync Error";
             }
             this.loading = false;
         },
 
-        // --- GROUPING LOGIC ---
         getGroupedFaction(fName) {
             if (!fName || fName === 'Unassigned') return [];
-            
             const sorted = this.alliances
-                .filter(a => (a.faction || '').toLowerCase().includes(fName.toLowerCase()))
+                .filter(a => a.faction.toLowerCase().includes(fName.toLowerCase()))
                 .sort((a,b) => b.stash - a.stash);
 
             const groups = [];
@@ -106,11 +116,7 @@ window.warRoom = function() {
                 i += step;
             }
             if (sorted.length > 30) {
-                groups.push({ 
-                    id: groups.length + 1, 
-                    label: "Rank 31-100", 
-                    alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) 
-                });
+                groups.push({ id: groups.length + 1, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) });
             }
             return groups;
         },
@@ -118,62 +124,46 @@ window.warRoom = function() {
         get knsGroups() { return this.getGroupedFaction('Kage'); },
         get kbtGroups() { return this.getGroupedFaction('Koubu'); },
 
-        // --- THE PARSER (Improved Regex) ---
-        async processImport() {
-            if (!this.importData.trim()) return;
-            this.isImporting = true;
-            const lines = this.importData.split('\n');
-            let successCount = 0;
-
-            for (const line of lines) {
-                // Regex handles formats like: [TAG] Name 12,345,678
-                const match = line.match(/\[(.*?)\]\s+(.*?)\s+([\d,.]+)/);
-                if (!match) continue;
-
-                const tag = match[1].trim();
-                const name = match[2].trim();
-                const val = parseInt(match[3].replace(/[,.]/g, ''));
-                const alliance = this.alliances.find(a => a.tag.toLowerCase() === tag.toLowerCase());
-
-                try {
-                    if (this.importMode === 'scout' && alliance) {
-                        await this.client.from('history').insert({ alliance_id: alliance.id, copper: val });
-                        await this.client.from('alliances').update({ name: name }).eq('id', alliance.id);
-                        successCount++;
-                    } else if (this.importMode === 'alliance') {
-                        // For creating new alliances via import, requires a manual server check
-                        const server = alliance ? alliance.server : '0'; 
-                        await this.client.from('alliances').upsert({ tag, name, power: val, server }, { onConflict: 'server,tag' });
-                        successCount++;
-                    }
-                } catch (e) { console.error(e); }
-            }
-
-            alert(`Processed ${successCount} entries.`);
-            this.importData = '';
-            this.isImporting = false;
-            await this.fetchData();
-        },
-
-        // --- AUTH ---
         async login(isAuto = false) {
-            const { data, error } = await this.client
-                .from('authorized_managers')
-                .select('manager_name')
-                .eq('secret_key', this.passInput)
-                .single();
-
+            const { data } = await this.client.from('authorized_managers').select('manager_name').eq('secret_key', this.passInput).single();
             if (data) {
                 this.authenticated = true;
                 this.managerName = data.manager_name;
                 localStorage.setItem('war_admin_key', this.passInput);
             } else if (!isAuto) {
-                alert("Invalid Access Key.");
+                alert("Denied.");
                 localStorage.removeItem('war_admin_key');
             }
         },
 
-        // --- CLOCK & SCHEDULE ---
+        async processImport() {
+            if (!this.importData.trim()) return;
+            this.isImporting = true;
+            const lines = this.importData.split('\n');
+            let count = 0;
+            for (const line of lines) {
+                const match = line.match(/\[(.*?)\]\s+(.*?)\s+([\d,.]+)/);
+                if (!match) continue;
+                const [_, tag, name, valStr] = match;
+                const val = parseInt(valStr.replace(/[,.]/g, ''));
+                const alliance = this.alliances.find(a => a.tag.toLowerCase() === tag.trim().toLowerCase());
+                try {
+                    if (this.importMode === 'scout' && alliance) {
+                        await this.client.from('history').insert({ alliance_id: alliance.id, copper: val });
+                        await this.client.from('alliances').update({ name: name.trim() }).eq('id', alliance.id);
+                        count++;
+                    } else if (this.importMode === 'alliance' && alliance) {
+                        await this.client.from('alliances').update({ name: name.trim(), power: val }).eq('id', alliance.id);
+                        count++;
+                    }
+                } catch (e) {}
+            }
+            alert(`Updated ${count}`);
+            this.importData = '';
+            this.isImporting = false;
+            await this.fetchData();
+        },
+
         updateClock() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
@@ -202,7 +192,6 @@ window.warRoom = function() {
             this.phaseCountdown = `${Math.floor(dff/36e5)}h : ${Math.floor((dff%36e5)/6e4)}m : ${Math.floor((dff%6e4)/1e3)}s`;
         },
 
-        // --- HELPERS ---
         get knsTotalStash() { return this.alliances.filter(a => a.faction.includes('Kage')).reduce((s, a) => s + a.stash, 0); },
         get kbtTotalStash() { return this.alliances.filter(a => a.faction.includes('Koubu')).reduce((s, a) => s + a.stash, 0); },
         get groupedForces() {
@@ -251,8 +240,8 @@ window.warRoom = function() {
         async saveCitiesToDB() {
             const a = this.alliances.find(x => x.tag === this.editTag);
             if (!a) return;
-            const { error } = await this.client.from('cities').upsert({ alliance_id: a.id, ...a.cities });
-            if (error) alert(error.message); else { alert("Saved!"); await this.fetchData(); }
+            await this.client.from('cities').upsert({ alliance_id: a.id, ...a.cities });
+            alert("Saved!"); await this.fetchData();
         },
         saveSettings() { localStorage.setItem('war_ref_alliance', this.myAllianceName); }
     }
