@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>War Intelligence Command v2.2</title>
+    <title>War Intelligence v2.2</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -58,18 +58,18 @@
             <!-- NAVIGATION -->
             <nav class="flex flex-col gap-2">
                 <button @click="tab = 'warroom'; mobileMenu = false" :class="tab === 'warroom' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-all italic leading-none">Declaration Hub</button>
-                <button @click="tab = 'forces'; mobileMenu = false" :class="tab === 'forces' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-all italic leading-none">Servers Intelligence</button>
+                <button @click="tab = 'forces'; mobileMenu = false" :class="tab === 'forces' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-all italic leading-none">Alliances THP list</button>
                 <button @click="tab = 'admin'; mobileMenu = false" :class="tab === 'admin' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase italic transition-all text-center tracking-widest">Commander Console</button>
             </nav>
 
             <!-- FACTION TOTALS -->
             <div class="space-y-2 py-4 border-y border-slate-800">
                 <div class="flex justify-between items-center text-[10px] font-black uppercase italic">
-                    <span class="text-red-500">Kage Stash</span>
+                    <span class="text-red-500">Kage Faction</span>
                     <span class="text-white font-mono" x-text="formatNum(knsTotalStash)"></span>
                 </div>
                 <div class="flex justify-between items-center text-[10px] font-black uppercase italic">
-                    <span class="text-blue-500">Koubu Stash</span>
+                    <span class="text-blue-500">Koubu Faction</span>
                     <span class="text-white font-mono" x-text="formatNum(kbtTotalStash)"></span>
                 </div>
             </div>
@@ -86,10 +86,16 @@
 
             <div class="mt-auto space-y-2 text-center">
                 <button @click="fetchData()" class="w-full py-3 bg-cyan-600/20 border border-cyan-500/30 hover:bg-cyan-600/40 rounded-xl text-cyan-400 text-[10px] font-bold uppercase tracking-widest transition-all">
-                    Sync Intel (CET)
+                    Sync Intel
                 </button>
                 <p class="text-[9px] text-slate-600 font-mono" x-text="debugStatus"></p>
             </div>
+            <div class="mt-auto pt-4 border-t border-slate-800 text-center">
+    <p class="text-[8px] text-slate-700 font-mono uppercase tracking-widest">
+        Tactical Command v<span x-text="version"></span>
+    </p>
+    <p class="text-[9px] text-slate-600 font-mono" x-text="debugStatus"></p>
+                </div>
         </aside>
 
         <!-- MAIN WINDOW -->
