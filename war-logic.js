@@ -1,7 +1,7 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
-        version: '2.5.0',
+        version: '2.5.5',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
@@ -12,7 +12,9 @@ window.warRoom = function() {
         importData: '', isImporting: false,
         rateMode: localStorage.getItem('war_rate_mode') || 'auto',
         displayClock: '', currentRoundText: '', currentPhase: '', phaseCountdown: '',
-        seasonStart: new Date("2026/01/05 03:00:00"),
+        
+        // FIXED SEASON ANCHOR: Monday, Jan 5, 2026, 03:00 CET
+        seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
 
         async init() {
             const storedVersion = localStorage.getItem('war_app_version');
@@ -26,7 +28,6 @@ window.warRoom = function() {
             
             await this.fetchData();
 
-            // Auto-expand group for reference alliance
             if (this.myAllianceName) {
                 const me = this.alliances.find(a => a.name === this.myAllianceName);
                 if (me) {
@@ -52,8 +53,8 @@ window.warRoom = function() {
                 ]);
                 this.alliances = resM.data || [];
                 this.players = resP.data || [];
-                this.debugStatus = `Intel Synced: ${this.alliances.length} Units`;
-            } catch (e) { this.debugStatus = "Sync Failed"; console.error(e); }
+                this.debugStatus = `Strategic Intel Online`;
+            } catch (e) { this.debugStatus = "Sync Error"; }
             this.loading = false;
         },
 
@@ -68,10 +69,8 @@ window.warRoom = function() {
                 const lastScout = a.last_scout_time ? new Date(a.last_scout_time) : cet;
                 const hoursSinceScout = Math.max(0, (cet - lastScout) / 3600000);
                 const hoursUntilWar = Math.max(0, (warTime - cet) / 3600000);
-
                 const currentStash = Number(a.last_copper || 0) + (rate * hoursSinceScout);
                 const warStash = currentStash + (rate * hoursUntilWar);
-
                 return { ...a, stash: currentStash, warStash: warStash, rate: rate, isObserved: (this.rateMode === 'auto' && Number(a.observed_rate) > 0) };
             });
         },
@@ -92,6 +91,16 @@ window.warRoom = function() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             this.displayClock = cet.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+
+            // PRE-SEASON CHECK
+            if (cet < this.seasonStart) {
+                this.currentRoundText = "PRE-SEASON";
+                this.currentPhase = "Awaiting Season Launch";
+                this.week = 1;
+                const dff = this.seasonStart - cet;
+                this.phaseCountdown = `${Math.floor(dff/864e5)}d : ${Math.floor((dff%864e5)/36e5)}h : ${Math.floor((dff%36e5)/6e4)}m`;
+                return;
+            }
 
             const diffDays = Math.floor((cet - this.seasonStart) / 864e5);
             this.week = Math.max(1, Math.min(4, Math.floor(diffDays / 7) + 1));
@@ -142,7 +151,6 @@ window.warRoom = function() {
             return groups;
         },
 
-        // --- WRAPPER GETTERS FOR HTML ---
         get knsGroups() { return this.getGroupedFaction('Kage'); },
         get kbtGroups() { return this.getGroupedFaction('Koubu'); },
 
@@ -163,8 +171,9 @@ window.warRoom = function() {
         isMatch(t) { 
             const me = this.alliances.find(a => a.name === this.myAllianceName); 
             if (!me || !t.faction || t.faction === me.faction) return false; 
-            const myG = this.knsGroups.concat(this.kbtGroups).find(g => g.alliances.some(x => x.id === me.id))?.id;
-            const taG = this.knsGroups.concat(this.kbtGroups).find(g => g.alliances.some(x => x.id === t.id))?.id;
+            const allG = this.getGroupedFaction('Kage').concat(this.getGroupedFaction('Koubu'));
+            const myG = allG.find(g => g.alliances.some(x => x.id === me.id))?.id;
+            const taG = allG.find(g => g.alliances.some(x => x.id === t.id))?.id;
             return myG && taG && myG === taG; 
         },
         async login(isAuto = false) { 
@@ -182,12 +191,19 @@ window.warRoom = function() {
                     if (a) await this.client.from('history').insert({ alliance_id: a.id, copper: item.stash });
                 }
                 alert("Imported."); this.importData = '';
-            } catch (e) { alert("Invalid JSON."); }
+            } catch (e) { alert("Invalid JSON array."); }
             this.isImporting = false; await this.fetchData();
         },
         copyScoutPrompt() { 
-            const p = `Convert following OCR into JSON: [{"tag": "TAG", "name": "Name", "stash": 12345678}]. OCR Data: \n${this.importData}`; 
-            navigator.clipboard.writeText(p); alert("AI Prompt Copied!"); 
+            const p = `Act as an OCR data parser. Convert the following messy text into a clean JSON array.
+Format: [{"tag": "MAD1", "name": "Madness", "stash": 12500000}]
+Rules:
+- Capture Alliance Tag (inside brackets).
+- Capture Name.
+- Capture Stash (remove commas/dots).
+- ONLY return the JSON array.
+Data:\n${this.importData}`; 
+            navigator.clipboard.writeText(p); alert("AI Instructions Copied!"); 
         },
         get knsTotalStash() { return this.factionData.filter(a => (a.faction || '').toLowerCase().includes('kage')).reduce((s, a) => s + a.stash, 0); },
         get kbtTotalStash() { return this.factionData.filter(a => (a.faction || '').toLowerCase().includes('koubu')).reduce((s, a) => s + a.stash, 0); },
