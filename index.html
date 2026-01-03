@@ -22,40 +22,49 @@
 </head>
 <body x-data="warRoom()" x-init="init()">
 
+    <!-- MOBILE HEADER -->
     <div class="lg:hidden glass fixed top-0 w-full z-[100] p-4 flex justify-between items-center border-b border-slate-800 text-left">
         <h1 class="text-xl font-black tracking-tighter text-cyan-500 italic uppercase leading-none">War Intel</h1>
-        <button @click="mobileMenu = !mobileMenu" class="p-2 bg-slate-800 rounded-lg text-cyan-500"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16m-7 6h7"></path></svg></button>
+        <button @click="mobileMenu = !mobileMenu" class="p-2 bg-slate-800 rounded-lg text-cyan-500">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16m-7 6h7"></path></svg>
+        </button>
     </div>
 
-    <div class="flex h-screen overflow-hidden pt-14 lg:pt-0 text-left">
+    <div class="flex h-screen overflow-hidden pt-14 lg:pt-0">
         <!-- SIDEBAR -->
         <aside :class="mobileMenu ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'" 
                class="fixed lg:relative w-80 h-full glass p-6 flex flex-col gap-4 shadow-2xl border-r border-slate-800 z-[110] transition-transform duration-300 scrollbar-hide overflow-y-auto">
             
+            <!-- TIMER -->
             <div class="p-4 bg-slate-900 border border-amber-500/20 rounded-2xl shadow-lg">
                 <div class="flex justify-between items-center mb-1 text-[10px] font-black text-amber-500 uppercase italic">
                     <span x-text="currentRoundText"></span>
-                    <span class="text-[11px] font-mono text-white" x-text="displayClock"></span>
+                    <span class="text-[12px] font-mono text-white" x-text="displayClock"></span>
                 </div>
                 <div class="text-xs font-black text-white uppercase mb-1" x-text="currentPhase"></div>
-                <div class="text-[22px] font-mono font-black text-amber-400 text-center border-t border-slate-800 mt-2 pt-2" x-text="phaseCountdown"></div>
+                <div class="text-[22px] font-mono font-black text-amber-400 text-center border-t border-slate-800 pt-2" x-text="phaseCountdown"></div>
             </div>
 
+            <!-- NAV -->
             <nav class="flex flex-col gap-2">
-                <button @click="tab = 'warroom'; mobileMenu = false" :class="tab === 'warroom' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase tracking-widest italic">Declaration Hub</button>
-                <button @click="tab = 'forces'; mobileMenu = false" :class="tab === 'forces' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase tracking-widest italic">Servers Intelligence</button>
-                <button @click="tab = 'admin'; mobileMenu = false" :class="tab === 'admin' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase italic text-center tracking-widest">Commander Console</button>
+                <button @click="tab = 'warroom'; mobileMenu = false" :class="tab === 'warroom' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase italic transition-all">Declaration Hub</button>
+                <button @click="tab = 'forces'; mobileMenu = false" :class="tab === 'forces' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase italic transition-all">Servers Intelligence</button>
+                <button @click="tab = 'admin'; mobileMenu = false" :class="tab === 'admin' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase italic transition-all text-center">Commander Console</button>
             </nav>
 
+            <!-- MODE TOGGLE -->
             <div class="p-3 bg-slate-900/50 rounded-xl border border-slate-800">
-                <div class="flex justify-between items-center mb-1"><span class="text-[9px] font-black uppercase text-slate-500">Rate Calculation</span><button @click="toggleRateMode()" class="px-2 py-1 bg-slate-800 rounded text-[8px] font-black uppercase text-cyan-400" x-text="rateMode === 'auto' ? 'Intelligence' : 'Base Production'"></button></div>
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-[9px] font-black uppercase text-slate-500">Rate Mode</span>
+                    <button @click="toggleRateMode()" class="px-2 py-1 bg-slate-800 rounded text-[8px] font-black uppercase text-cyan-400" x-text="rateMode === 'auto' ? 'Intelligence' : 'Base Only'"></button>
+                </div>
             </div>
 
             <div class="space-y-1">
-                <label class="text-[10px] font-black text-slate-500 uppercase italic block text-center underline">My Alliance</label>
+                <label class="text-[10px] font-black text-slate-500 uppercase block text-center underline">My Alliance</label>
                 <input type="text" x-model="refSearch" placeholder="Find Tag..." class="w-full bg-black border border-slate-800 p-2 rounded text-[10px] text-cyan-500 uppercase outline-none">
                 <select x-model="myAllianceName" @change="saveSettings()" class="w-full bg-slate-900 border border-slate-700 p-2 rounded text-white text-xs outline-none">
-                    <option value="">-- Select Alliance --</option>
+                    <option value="">-- Choose Alliance --</option>
                     <template x-for="a in getFilteredRefList()"><option :value="a.name" x-text="`[${a.tag}] ${a.name}`"></option></template>
                 </select>
             </div>
@@ -66,8 +75,8 @@
             </div>
 
             <div class="mt-auto pt-4 text-center border-t border-slate-800">
-                <button @click="fetchData()" class="w-full mb-4 py-2 bg-cyan-600/20 border border-cyan-500/30 rounded-xl text-cyan-400 text-[10px] font-black uppercase">Sync Tactical Intel</button>
-                <p class="text-[8px] text-slate-700 font-mono uppercase">Tactical Command v<span x-text="version"></span></p>
+                <button @click="fetchData()" class="w-full mb-4 py-2 bg-cyan-600/20 border border-cyan-500/30 rounded-xl text-cyan-400 text-[10px] font-black uppercase">Sync Strategic Intel</button>
+                <p class="text-[8px] text-slate-700 font-mono uppercase">Command v<span x-text="version"></span></p>
             </div>
         </aside>
 
@@ -77,9 +86,9 @@
 
             <div x-show="!loading" x-cloak>
                 
-                <!-- VIEW 1: HUB -->
+                <!-- HUB -->
                 <div x-show="tab === 'warroom'">
-                    <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-4">
+                    <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-4 text-left">
                         <h2 class="text-4xl font-black uppercase italic text-amber-500 tracking-tighter leading-none">Declaration Hub</h2>
                         <input type="text" x-model="searchQuery" placeholder="Search Tag or Alliance..." class="bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm text-white outline-none w-full lg:w-96 focus:ring-2 focus:ring-amber-500 italic">
                     </div>
@@ -97,24 +106,25 @@
                                             <span class="text-xs font-black uppercase text-slate-300" x-text="group.label"></span>
                                             <span class="text-slate-500 font-bold" x-text="isGroupOpen(faction, group.id) ? '−' : '+'"></span>
                                         </div>
-                                        <div x-show="isGroupOpen(faction, group.id)" class="space-y-2 pt-2 pb-4 px-2">
+                                        <div x-show="isGroupOpen(faction, group.id)" x-transition class="space-y-2 pt-2 pb-4 px-2">
                                             <template x-for="a in group.alliances">
                                                 <div class="glass p-4 rounded-2xl transition-all" :class="[isMatch(a) ? 'match-glow' : '', faction === 'Kage' ? 'kns-card' : 'kbt-card']">
                                                     <div class="flex justify-between items-start mb-3">
-                                                        <div>
+                                                        <div class="text-left">
                                                             <div class="flex items-center gap-2 mb-1"><span class="text-[10px] font-black text-slate-500" x-text="'#'+a.factionRank"></span><span class="tag-badge" x-text="a.tag"></span><span class="font-black text-lg uppercase text-white leading-tight" x-text="a.name"></span></div>
-                                                            <div class="flex flex-col leading-none">
-                                                                <span class="text-[9px] font-bold text-slate-500 uppercase mb-1" x-text="'Power: ' + formatPower(a.power)"></span>
-                                                                <div class="flex items-center gap-2">
-                                                                    <span class="text-[9px] text-amber-500 font-black uppercase" x-text="'Rate: +' + formatNum(a.rate) + '/h'"></span>
-                                                                    <span x-show="a.isObserved" class="text-[7px] bg-cyan-500/20 text-cyan-400 px-1 rounded font-black italic">INTELLIGENCE</span>
-                                                                    <span x-show="!a.isObserved" class="text-[7px] bg-slate-500/20 text-slate-400 px-1 rounded font-black italic">CITY BASE</span>
-                                                                </div>
+                                                            <div class="flex items-center gap-2">
+                                                                <span class="text-[9px] text-amber-500 font-black uppercase" x-text="'Rate: +' + formatNum(a.rate) + '/h'"></span>
+                                                                <span x-show="a.isObserved" class="text-[7px] bg-cyan-500/20 text-cyan-400 px-1 rounded font-black italic">CALCULATED</span>
+                                                                <span x-show="!a.isObserved" class="text-[7px] bg-slate-500/20 text-slate-400 px-1 rounded font-black italic">CITY STATIC</span>
                                                             </div>
                                                         </div>
                                                         <div class="text-right flex flex-col items-end leading-none">
                                                             <span class="text-xl font-mono font-black text-white block" x-text="formatNum(a.stash)"></span>
-                                                            <div class="mt-2 bg-amber-500/10 p-1 rounded border border-amber-500/20 text-right"><span class="text-sm font-mono font-black text-amber-500" x-text="formatNum(a.warStash)"></span><div class="text-[7px] text-amber-600 font-black uppercase mt-1 italic">Stash at War</div></div>
+                                                            <span class="text-[8px] text-slate-500 uppercase font-black mt-1">Live Current Estimate</span>
+                                                            <div class="mt-2 bg-amber-500/10 p-1 rounded border border-amber-500/20 text-right">
+                                                                <span class="text-sm font-mono font-black text-amber-500" x-text="formatNum(a.warStash)"></span>
+                                                                <div class="text-[7px] text-amber-600 font-black uppercase mt-1 italic tracking-tighter">Projected at War Start</div>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                     <div class="grid grid-cols-4 gap-2 border-t border-slate-800 pt-3 text-center">
@@ -133,9 +143,9 @@
                     </div>
                 </div>
 
-                <!-- VIEW 2: SERVERS -->
+                <!-- SERVERS -->
                 <div x-show="tab === 'forces'" x-cloak>
-                    <h3 class="text-4xl font-black uppercase italic text-emerald-500 mb-8 underline leading-none">Servers Intelligence</h3>
+                    <h3 class="text-4xl font-black uppercase italic text-emerald-500 mb-8 underline leading-none text-left">Servers Intelligence</h3>
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 text-left">
                         <template x-for="type in ['Ally', 'Enemy']">
                             <div class="space-y-6">
@@ -143,16 +153,16 @@
                                 <template x-for="(serverGroup, server) in groupedForces">
                                     <template x-if="(type === 'Ally' && isAllyServer(serverGroup)) || (type === 'Enemy' && !isAllyServer(serverGroup))">
                                         <div class="mb-2">
-                                            <div @click="toggleServerCollapse(server)" class="glass p-4 rounded-xl flex justify-between items-center cursor-pointer border border-slate-800 hover:bg-slate-800/50">
+                                            <div @click="toggleServerCollapse(server)" class="glass p-4 rounded-xl flex justify-between items-center cursor-pointer border border-slate-800 hover:bg-slate-800/50 transition-all">
                                                 <h4 class="text-lg font-black font-mono text-white uppercase" x-text="'Warzone #' + server"></h4>
                                                 <span class="text-slate-500 font-bold" x-text="isServerOpen(server) ? '−' : '+'"></span>
                                             </div>
-                                            <div x-show="isServerOpen(server)" class="mt-2 space-y-2 pl-4">
+                                            <div x-show="isServerOpen(server)" x-transition class="mt-2 space-y-2 pl-4">
                                                 <template x-for="a in serverGroup">
-                                                    <div class="glass p-3 rounded-xl border border-slate-800 hover:border-cyan-500/30 transition-all">
+                                                    <div class="glass p-3 rounded-xl border border-slate-800 transition-all">
                                                         <div @click="toggleAlliance(a.id)" class="flex justify-between items-center cursor-pointer">
                                                             <div class="text-left">
-                                                                <div class="flex items-center gap-2 mb-1 leading-none"><span class="tag-badge" x-text="a.tag"></span><span class="font-bold text-white text-sm uppercase" x-text="a.name"></span></div>
+                                                                <div class="flex items-center gap-2 mb-1"><span class="tag-badge" x-text="a.tag"></span><span class="font-bold text-white text-sm uppercase" x-text="a.name"></span></div>
                                                                 <div class="text-[9px] text-slate-500 font-black uppercase italic" x-text="'Top Player: ' + (a.ace_name || 'N/A')"></div>
                                                             </div>
                                                             <div class="text-right leading-none">
@@ -160,9 +170,9 @@
                                                                 <div class="font-mono font-black text-amber-500 text-lg" x-text="formatNum(a.ace_thp)"></div>
                                                             </div>
                                                         </div>
-                                                        <div x-show="openAlliances.includes(a.id)" class="mt-3 border-t border-slate-800 pt-3 space-y-1">
+                                                        <div x-show="isAllianceOpen(a.id)" class="mt-3 border-t border-slate-800 pt-3 space-y-1">
                                                             <template x-for="p in getPlayersForAlliance(a.id)">
-                                                                <div class="flex justify-between text-[10px] uppercase font-bold text-slate-400 font-mono leading-none"><span x-text="p.name"></span><span class="text-cyan-500" x-text="formatNum(p.thp)"></span></div>
+                                                                <div class="flex justify-between text-[10px] uppercase font-bold text-slate-400 font-mono"><span x-text="p.name"></span><span class="text-cyan-500" x-text="formatNum(p.thp)"></span></div>
                                                             </template>
                                                         </div>
                                                     </div>
@@ -176,25 +186,25 @@
                     </div>
                 </div>
 
-                <!-- VIEW 3: ADMIN -->
-                <div x-show="tab === 'admin'" x-cloak class="max-w-2xl mx-auto mt-10 pb-20">
+                <!-- ADMIN -->
+                <div x-show="tab === 'admin'" x-cloak class="max-w-2xl mx-auto mt-10 pb-20 text-left">
                     <div x-show="!authenticated" class="glass p-12 rounded-3xl border border-slate-800 text-center">
-                        <h2 class="text-2xl font-black uppercase text-red-500 underline mb-4">Authorized Commander Access</h2>
+                        <h2 class="text-2xl font-black uppercase text-red-500 underline mb-4 leading-none">Commander Authorization</h2>
                         <input type="password" x-model="passInput" placeholder="Security Key" class="w-full bg-slate-950 border border-slate-800 p-4 rounded-2xl mb-4 text-center text-white outline-none focus:ring-2 focus:ring-red-500">
                         <button @click="login()" class="w-full py-4 bg-red-600 rounded-2xl font-black uppercase tracking-widest shadow-lg">Authenticate</button>
                     </div>
-                    <div x-show="authenticated" class="space-y-8 text-left">
+                    <div x-show="authenticated" class="space-y-8">
                         <div class="glass p-8 rounded-3xl border border-cyan-500/30">
-                            <h3 class="text-xl font-black uppercase text-cyan-400 italic mb-2 tracking-widest leading-none">Intelligence Parser</h3>
-                            <p class="text-[9px] text-slate-500 mb-4 uppercase">Convert messy text into scouts using AI instructions.</p>
-                            <textarea x-model="importData" rows="6" placeholder="Paste raw data..." class="w-full bg-black p-4 rounded-xl font-mono text-xs text-cyan-400 outline-none mb-4"></textarea>
+                            <h3 class="text-xl font-black uppercase text-cyan-400 italic mb-2 tracking-widest leading-none">AI Intelligence Parser</h3>
+                            <p class="text-[9px] text-slate-500 mb-4 uppercase">1. Paste raw text below -> 2. Copy Prompt -> 3. Paste JSON back -> 4. Process</p>
+                            <textarea x-model="importData" rows="6" placeholder="Paste data here..." class="w-full bg-black p-4 rounded-xl font-mono text-xs text-cyan-400 outline-none focus:ring-1 focus:ring-cyan-500 mb-4"></textarea>
                             <div class="flex gap-4">
-                                <button @click="copyScoutPrompt()" class="flex-1 py-4 bg-blue-600 hover:bg-blue-500 rounded-xl font-black uppercase text-xs">📋 1. AI Instructions</button>
+                                <button @click="copyScoutPrompt()" class="flex-1 py-4 bg-blue-600 hover:bg-blue-500 rounded-xl font-black uppercase text-xs">📋 1. Copy AI Instructions</button>
                                 <button @click="processImport()" :disabled="isImporting" class="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-black uppercase text-xs">🚀 2. Process JSON</button>
                             </div>
                         </div>
                         <div class="glass p-8 rounded-3xl border border-amber-500/30">
-                            <h3 class="text-xl font-black uppercase text-amber-500 italic mb-4 tracking-widest">Occupation Editor</h3>
+                            <h3 class="text-xl font-black uppercase text-amber-500 italic mb-4 tracking-widest">Manual Occupation Editor</h3>
                             <select x-model="editTag" class="w-full bg-slate-950 p-4 rounded-xl border border-slate-800 text-white mb-6 outline-none">
                                 <option value="">Select Alliance...</option>
                                 <template x-for="a in alliances.sort((x,y) => x.name.localeCompare(y.name))"><option :value="a.tag" x-text="`[${a.tag}] ${a.name}`"></option></template>
@@ -205,9 +215,9 @@
                                         <div class="bg-slate-900/50 p-3 rounded-2xl flex justify-between items-center border border-slate-800">
                                             <span class="text-xs font-black uppercase text-slate-400" x-text="'City Lvl ' + n"></span>
                                             <div class="flex items-center gap-4">
-                                                <button @click="updateCity(n, -1)" class="w-8 h-8 bg-slate-800 rounded font-bold hover:bg-red-500">-</button>
+                                                <button @click="updateCity(n, -1)" class="w-8 h-8 bg-slate-800 rounded font-bold hover:bg-red-500 transition-colors">-</button>
                                                 <span class="text-xl font-black text-cyan-400 w-6 text-center" x-text="getCityCount(n)"></span>
-                                                <button @click="updateCity(n, 1)" class="w-8 h-8 bg-slate-800 rounded font-bold hover:bg-emerald-500">+</button>
+                                                <button @click="updateCity(n, 1)" class="w-8 h-8 bg-slate-800 rounded font-bold hover:bg-emerald-500 transition-colors">+</button>
                                             </div>
                                         </div>
                                     </template>
