@@ -1,17 +1,18 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
-        version: '2.4.5',
+        version: '2.5.0',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
         // --- STATE ---
-        tab: 'warroom', loading: true, searchQuery: '', refSearch: '', debugStatus: 'Ready',
+        tab: 'warroom', loading: true, mobileMenu: false, searchQuery: '', refSearch: '', debugStatus: 'Ready',
         alliances: [], players: [], openGroups: [], openServers: [], openAlliances: [],
         authenticated: false, passInput: '', managerName: '',
+        importData: '', isImporting: false,
         rateMode: localStorage.getItem('war_rate_mode') || 'auto',
         displayClock: '', currentRoundText: '', currentPhase: '', phaseCountdown: '',
-        seasonStart: new Date("2026/01/05 03:00:00"), // Mon Jan 5, 03:00 CET
+        seasonStart: new Date("2026/01/05 03:00:00"),
 
         async init() {
             const storedVersion = localStorage.getItem('war_app_version');
@@ -43,6 +44,7 @@ window.warRoom = function() {
         },
 
         async fetchData() {
+            this.loading = true;
             try {
                 const [resM, resP] = await Promise.all([
                     this.client.from('war_master_view').select('*'),
@@ -50,7 +52,8 @@ window.warRoom = function() {
                 ]);
                 this.alliances = resM.data || [];
                 this.players = resP.data || [];
-            } catch (e) { this.debugStatus = "Sync Failed"; }
+                this.debugStatus = `Intel Synced: ${this.alliances.length} Units`;
+            } catch (e) { this.debugStatus = "Sync Failed"; console.error(e); }
             this.loading = false;
         },
 
@@ -61,9 +64,7 @@ window.warRoom = function() {
             const warTime = this.getNextWarTime();
 
             return this.alliances.map(a => {
-                // Priority Logic: force static OR (if auto: observed rate > city rate)
                 let rate = (this.rateMode === 'static') ? Number(a.city_rate || 0) : (Number(a.observed_rate) > 0 ? Number(a.observed_rate) : Number(a.city_rate || 0));
-                
                 const lastScout = a.last_scout_time ? new Date(a.last_scout_time) : cet;
                 const hoursSinceScout = Math.max(0, (cet - lastScout) / 3600000);
                 const hoursUntilWar = Math.max(0, (warTime - cet) / 3600000);
@@ -96,7 +97,6 @@ window.warRoom = function() {
             this.week = Math.max(1, Math.min(4, Math.floor(diffDays / 7) + 1));
             const day = cet.getDay(); const hr = cet.getHours(); const min = cet.getMinutes();
 
-            // Rounds: R1 (Mon 03:00 - Thu 03:00), R2 (Thu 03:00 - Mon 03:00)
             const isR1 = (day >= 1 && day < 4 && !(day === 4 && hr >= 3));
             this.currentRoundText = `Week ${this.week} | Round ${isR1 ? 1 : 2}`;
 
@@ -121,38 +121,55 @@ window.warRoom = function() {
         },
 
         getGroupedFaction(fName) {
-            const sorted = this.factionData.filter(a => (a.faction || '').toLowerCase().includes(fName.toLowerCase())).sort((a,b) => b.stash - a.stash);
-            const groups = []; const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
+            if (!fName) return [];
+            const sorted = this.factionData
+                .filter(a => (a.faction || '').toLowerCase().includes(fName.toLowerCase()))
+                .filter(a => this.matchesSearch(a))
+                .sort((a,b) => b.stash - a.stash);
+
+            const groups = []; 
+            const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
             let i = 0;
             while (i < 30 && i < sorted.length) {
-                groups.push({ id: Math.floor(i/step)+1, label: `Rank ${i+1}-${Math.min(i+step, 30)}`, alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) });
+                groups.push({ 
+                    id: Math.floor(i/step)+1, 
+                    label: `Rank ${i+1}-${Math.min(i+step, 30)}`, 
+                    alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) 
+                });
                 i += step;
             }
             if (sorted.length > 30) groups.push({ id: groups.length+1, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) });
             return groups;
         },
 
+        // --- WRAPPER GETTERS FOR HTML ---
+        get knsGroups() { return this.getGroupedFaction('Kage'); },
+        get kbtGroups() { return this.getGroupedFaction('Koubu'); },
+
         // --- HELPERS ---
         toggleRateMode() { this.rateMode = this.rateMode === 'auto' ? 'static' : 'auto'; localStorage.setItem('war_rate_mode', this.rateMode); },
         toggleGroup(f, id) { const k = `${f}-${id}`; this.openGroups = this.openGroups.includes(k) ? this.openGroups.filter(x => x !== k) : [...this.openGroups, k]; },
         isGroupOpen(f, id) { return this.openGroups.includes(`${f}-${id}`); },
         toggleServerCollapse(s) { this.openServers = this.openServers.includes(s) ? this.openServers.filter(x => x !== s) : [...this.openServers, s]; },
+        isServerOpen(s) { return this.openServers.includes(s); },
         toggleAlliance(id) { this.openAlliances = this.openAlliances.includes(id) ? this.openAlliances.filter(x => x !== id) : [...this.openAlliances, id]; },
+        isAllianceOpen(id) { return this.openAlliances.includes(id); },
         formatNum(v) { return Math.floor(v || 0).toLocaleString(); },
         formatPower(v) { return (v/1e9).toFixed(2) + 'B'; },
         matchesSearch(a) { const q = this.searchQuery.toLowerCase(); return !q || a.name.toLowerCase().includes(q) || a.tag.toLowerCase().includes(q); },
-        isAllyServer(group) { const me = this.alliances.find(a => a.name === this.myAllianceName); return me ? group.some(a => a.faction === me.faction) : true; },
+        isAllyServer(group) { const me = this.alliances.find(a => a.name === this.myAllianceName); return me ? group.some(a => (a.faction || '').toLowerCase().includes(me.faction.toLowerCase().split(' ')[0])) : true; },
         getFilteredRefList() { return [...this.alliances].sort((a,b) => a.name.localeCompare(b.name)).filter(a => !this.refSearch || a.tag.toLowerCase().includes(this.refSearch.toLowerCase())); },
         getPlayersForAlliance(id) { return this.players.filter(p => p.alliance_id === id); },
         isMatch(t) { 
             const me = this.alliances.find(a => a.name === this.myAllianceName); 
             if (!me || !t.faction || t.faction === me.faction) return false; 
-            const myG = this.getGroupedFaction(me.faction).find(g => g.alliances.some(x => x.id === me.id))?.id;
-            const taG = this.getGroupedFaction(t.faction).find(g => g.alliances.some(x => x.tag === t.tag))?.id;
+            const myG = this.knsGroups.concat(this.kbtGroups).find(g => g.alliances.some(x => x.id === me.id))?.id;
+            const taG = this.knsGroups.concat(this.kbtGroups).find(g => g.alliances.some(x => x.id === t.id))?.id;
             return myG && taG && myG === taG; 
         },
         async login(isAuto = false) { 
             const k = isAuto ? localStorage.getItem('war_admin_key') : this.passInput;
+            if(!k) return;
             const { data } = await this.client.from('authorized_managers').select('manager_name').eq('secret_key', k).single();
             if (data) { this.authenticated = true; this.managerName = data.manager_name; localStorage.setItem('war_admin_key', k); }
         },
@@ -168,9 +185,12 @@ window.warRoom = function() {
             } catch (e) { alert("Invalid JSON."); }
             this.isImporting = false; await this.fetchData();
         },
-        copyScoutPrompt() { const p = `Convert following OCR into JSON: [{"tag": "TAG", "name": "Name", "stash": 12345678}]. Data: \n${this.importData}`; navigator.clipboard.writeText(p); alert("AI Prompt Copied!"); },
-        get knsTotalStash() { return this.factionData.filter(a => a.faction.toLowerCase().includes('kage')).reduce((s, a) => s + a.stash, 0); },
-        get kbtTotalStash() { return this.factionData.filter(a => a.faction.toLowerCase().includes('koubu')).reduce((s, a) => s + a.stash, 0); },
+        copyScoutPrompt() { 
+            const p = `Convert following OCR into JSON: [{"tag": "TAG", "name": "Name", "stash": 12345678}]. OCR Data: \n${this.importData}`; 
+            navigator.clipboard.writeText(p); alert("AI Prompt Copied!"); 
+        },
+        get knsTotalStash() { return this.factionData.filter(a => (a.faction || '').toLowerCase().includes('kage')).reduce((s, a) => s + a.stash, 0); },
+        get kbtTotalStash() { return this.factionData.filter(a => (a.faction || '').toLowerCase().includes('koubu')).reduce((s, a) => s + a.stash, 0); },
         get groupedForces() { const groups = {}; this.factionData.forEach(a => { if (!groups[a.server]) groups[a.server] = []; groups[a.server].push(a); }); Object.keys(groups).forEach(s => groups[s].sort((a,b) => b.ace_thp - a.ace_thp)); return groups; },
         getCityCount(n) { const a = this.alliances.find(x => x.tag === this.editTag); return a ? a['l'+n] : 0; },
         updateCity(n, d) { const a = this.alliances.find(x => x.tag === this.editTag); if (a) a['l'+n] = Math.max(0, a['l'+n] + d); },
