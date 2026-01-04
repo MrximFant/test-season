@@ -1,7 +1,7 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
-        version: '2.3.4',
+        version: '2.3.5',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
@@ -43,12 +43,10 @@ window.warRoom = function() {
             this.loading = false;
         },
 
-        // --- MATH ENGINE ---
         get factionData() {
             const now = new Date();
             const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             const warTime = this.getNextWarTime();
-
             return this.alliances.map(a => {
                 let rate = Number(a.observed_rate) > 0 ? Number(a.observed_rate) : Number(a.city_rate || 0);
                 const scoutTime = a.last_scout_time ? new Date(a.last_scout_time) : cetNow;
@@ -109,7 +107,6 @@ window.warRoom = function() {
             this.phaseCountdown = `${Math.floor(dff/36e5)}h : ${Math.floor((dff%36e5)/6e4)}m : ${Math.floor((dff%6e4)/1e3)}s`;
         },
 
-        // --- GROUPING & COMPARISON ---
         getGroupedFaction(fName) {
             const sorted = this.factionData.filter(a => a.faction.toLowerCase().includes(fName.toLowerCase())).sort((a,b) => b.stash - a.stash);
             const groups = []; const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
@@ -133,7 +130,7 @@ window.warRoom = function() {
 
         openComparison(targetAlliance) {
             const me = this.alliances.find(a => a.name === this.myAllianceName);
-            if (!me) return alert("Please select your Reference Alliance in the sidebar first.");
+            if (!me) return alert("Select your Alliance in the sidebar first.");
             this.comparisonTarget = {
                 me: { name: me.name, tag: me.tag, roster: this.getPlayersForAlliance(me.id) },
                 them: { name: targetAlliance.name, tag: targetAlliance.tag, roster: this.getPlayersForAlliance(targetAlliance.id) }
@@ -184,7 +181,7 @@ window.warRoom = function() {
             alert("Saved!"); await this.fetchData();
         },
         copyScoutPrompt() { 
-            const prompt = `Convert the following OCR text into JSON array: [{"tag": "TAG", "name": "Name", "stash": 12345000}]. DATA:\n${this.importData}`;
+            const prompt = `Convert raw OCR text into JSON array: [{"tag": "TAG", "name": "Name", "stash": 12345000}]. DATA:\n${this.importData}`;
             navigator.clipboard.writeText(prompt); alert("AI Prompt Copied!");
         },
         async processImport() {
