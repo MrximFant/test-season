@@ -112,15 +112,15 @@
                                                         <div class="text-left">
                                                             <div class="flex items-center gap-2 mb-1 leading-none"><span class="text-[10px] font-black text-slate-500" x-text="'#'+a.factionRank"></span><span class="tag-badge" x-text="a.tag"></span><span class="font-black text-lg uppercase text-white" x-text="a.name"></span></div>
                                                             <div class="flex items-center gap-2 mt-2 leading-none">
-                                                                <span class="text-[10px] text-amber-500 font-black uppercase" x-text="'Rate: +' + formatNum(a.rate) + '/h'"></span>
+                                                                <span class="text-[9px] text-amber-500 font-black uppercase mt-0.5" x-text="'Rate: ~+' + formatNum(a.rate) + '/h'"></span>
                                                                 <span x-show="a.isObserved" class="text-[7px] bg-cyan-500/20 text-cyan-400 px-1 rounded font-black italic">INTEL</span>
                                                                 <span x-show="!a.isObserved" class="text-[7px] bg-slate-500/20 text-slate-400 px-1 rounded font-black italic">CITY BASE</span>
                                                             </div>
                                                             <div class="text-[9px] font-bold text-slate-500 uppercase mt-2" x-text="'Power: ' + formatPower(a.power)"></div>
                                                         </div>
                                                         <div class="text-right leading-none">
-                                                            <span class="text-xl font-mono font-black text-white" x-text="formatNum(a.stash)"></span>
-                                                            <div class="mt-2 bg-amber-500/10 p-1 rounded border border-amber-500/20 text-right"><span class="text-sm font-mono font-black text-amber-500" x-text="formatNum(a.warStash)"></span><div class="text-[7px] text-amber-600 font-black uppercase italic mt-1 leading-none">at War Start</div></div>
+                                                            <span class="text-xl font-mono font-black text-white block" x-text="'~' + formatNum(a.stash)"></span>
+                                                            <div class="mt-2 bg-amber-500/10 p-1 rounded border border-amber-500/20 text-right"><span class="text-sm font-mono font-black text-amber-500" x-text="'~' + formatNum(a.warStash)"></span><div class="text-[7px] text-amber-600 font-black uppercase italic mt-1 leading-none">at War Start</div></div>
                                                         </div>
                                                     </div>
                                                     <div class="grid grid-cols-4 gap-2 border-t border-slate-800 pt-3 text-center">
