@@ -59,19 +59,32 @@ window.warRoom = function() {
         },
 
         // --- MATH ENGINE ---
-        get factionData() {
+       get factionData() {
             const now = new Date();
-            const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
+            // Get actual CET time right now
+            const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             const warTime = this.getNextWarTime();
 
             return this.alliances.map(a => {
-                let rate = (this.rateMode === 'static') ? Number(a.city_rate || 0) : (Number(a.observed_rate) > 0 ? Number(a.observed_rate) : Number(a.city_rate || 0));
-                const lastScout = a.last_scout_time ? new Date(a.last_scout_time) : cet;
-                const hoursSinceScout = Math.max(0, (cet - lastScout) / 3600000);
-                const hoursUntilWar = Math.max(0, (warTime - cet) / 3600000);
+                // Rate Priority: Observed (Scouts) > Passive (Cities)
+                let rate = Number(a.observed_rate) > 0 ? Number(a.observed_rate) : Number(a.city_rate || 0);
+                
+                // Real timestamp from the last time you hit "Process JSON" or SQL Insert
+                const scoutTime = a.last_scout_time ? new Date(a.last_scout_time) : cetNow;
+                
+                // 1. Hours passed from the moment of scout until this very second
+                const hoursSinceScout = Math.max(0, (cetNow - scoutTime) / 3600000);
+
+                // 2. Hours from this very second until the Wed/Sat 15:30 window
+                const hoursUntilWar = Math.max(0, (warTime - cetNow) / 3600000);
+
+                // 3. Current Live Stash (Real-time estimate)
                 const currentStash = Number(a.last_copper || 0) + (rate * hoursSinceScout);
+
+                // 4. Final Projection (Current + future growth)
                 const warStash = currentStash + (rate * hoursUntilWar);
-                return { ...a, stash: currentStash, warStash: warStash, rate: rate, isObserved: (this.rateMode === 'auto' && Number(a.observed_rate) > 0) };
+
+                return { ...a, stash: currentStash, warStash: warStash, rate: rate };
             });
         },
 
