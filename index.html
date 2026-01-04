@@ -57,15 +57,37 @@
                 <p class="text-[8px] text-slate-600 leading-tight">Switch mode to check base production without scout data.</p>
             </div>
 
-            <!-- MY ALLIANCE -->
-            <div class="space-y-1">
-                <label class="text-[10px] font-black text-slate-500 uppercase italic block text-center underline">My Alliance</label>
-                <input type="text" x-model="refSearch" placeholder="Find Tag..." class="w-full bg-black border border-slate-800 p-2 rounded text-[10px] text-cyan-500 uppercase outline-none shadow-inner">
-                <select x-model="myAllianceName" @change="saveSettings()" class="w-full bg-slate-900 border border-slate-700 p-2 rounded text-white text-xs outline-none">
-                    <option value="">-- Choose Alliance --</option>
-                    <template x-for="a in getFilteredRefList()"><option :value="a.name" x-text="`[${a.tag}] ${a.name}`"></option></template>
-                </select>
-            </div>
+    <!-- REFINED REFERENCE SELECTOR -->
+        <div class="space-y-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block text-center underline italic leading-none">My Reference Alliance</label>
+    
+            <!-- Show Current Selection -->
+                <div x-show="myAllianceName" class="flex items-center justify-between bg-cyan-500/10 border border-cyan-500/30 p-2 rounded-lg">
+                    <div class="leading-none">
+            <div class="text-[8px] text-cyan-500 font-black uppercase mb-1">Active Alliance</div>
+            <div class="text-xs font-bold text-white uppercase" x-text="myAllianceName"></div>
+        </div>
+        <button @click="myAllianceName = ''; localStorage.removeItem('war_ref_alliance')" class="text-slate-500 hover:text-red-500">×</button>
+    </div>
+
+    <!-- Search / List -->
+    <div class="relative">
+        <input type="text" x-model="refSearch" placeholder="Type Tag to search..." 
+               class="w-full bg-black border border-slate-700 p-2 rounded-lg text-[10px] text-cyan-400 outline-none focus:border-cyan-500 uppercase">
+        
+        <!-- Filtered Results Dropdown -->
+        <div x-show="refSearch" class="absolute left-0 w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-2xl z-[150] overflow-hidden">
+            <template x-for="a in getFilteredRefList()">
+                <div @click="setReferenceAlliance(a.name)" 
+                     class="p-2 text-[10px] hover:bg-cyan-600 cursor-pointer border-b border-slate-700 last:border-0 leading-none">
+                    <span class="font-black text-cyan-400" x-text="'[' + a.tag + '] '"></span>
+                    <span class="text-white" x-text="a.name"></span>
+                </div>
+            </template>
+            <div x-show="getFilteredRefList().length === 0" class="p-2 text-[10px] text-slate-500 italic">No matches found...</div>
+        </div>
+    </div>
+</div>
 
             <!-- FACTION TOTALS -->
             <div class="space-y-2 py-4 border-y border-slate-800">
