@@ -1,7 +1,7 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
-        version: '2.3.3',
+        version: '2.3.4',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
@@ -9,53 +9,26 @@ window.warRoom = function() {
         tab: 'warroom', loading: true, mobileMenu: false, searchQuery: '', refSearch: '', debugStatus: 'Ready',
         alliances: [], players: [], openGroups: [], openServers: [], openAlliances: [],
         authenticated: false, passInput: '', editTag: '', managerName: '',
-        importData: '', isImporting: false,
+        importData: '', isImporting: false, comparisonTarget: null,
         displayClock: '', currentRoundText: '', currentPhase: '', phaseCountdown: '',
         seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
 
         async init() {
-            // CACHE BUSTER (Smarter: Wipes data, but keeps your Alliance/Key safe)
             const storedVersion = localStorage.getItem('war_app_version');
             if (storedVersion !== this.version) {
-                localStorage.removeItem('war_data_cache'); // Wipe old data structure
+                localStorage.removeItem('war_data_cache');
                 localStorage.setItem('war_app_version', this.version);
-                // We DON'T clear war_ref_alliance or war_admin_key here
                 window.location.reload(true);
                 return;
             }
-
             this.client = supabase.createClient(this.sbUrl, this.sbKey);
             this.myAllianceName = localStorage.getItem('war_ref_alliance') || '';
-            
             await this.fetchData();
-
-            if (this.myAllianceName) {
-                this.autoExpandMyGroup();
-            }
-
+            if (this.myAllianceName) { this.autoExpandMyGroup(); }
             const savedKey = localStorage.getItem('war_admin_key');
             if (savedKey) { this.passInput = savedKey; await this.login(true); }
-
             this.updateClock();
             setInterval(() => this.updateClock(), 1000);
-        },
-
-        // New Helper to expand your specific group on load
-        autoExpandMyGroup() {
-            const me = this.alliances.find(a => a.name === this.myAllianceName);
-            if (me) {
-                const groups = this.getGroupedFaction(me.faction);
-                const myG = groups.find(g => g.alliances.some(x => x.id === me.id));
-                if (myG) this.openGroups.push(`${me.faction}-${myG.id}`);
-            }
-        },
-
-        // Call this when clicking an alliance in the sidebar list
-        setReferenceAlliance(name) {
-            this.myAllianceName = name;
-            localStorage.setItem('war_ref_alliance', name);
-            this.refSearch = ''; // Clear search after picking
-            this.autoExpandMyGroup();
         },
 
         async fetchData() {
@@ -106,25 +79,18 @@ window.warRoom = function() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             this.displayClock = cet.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
-
             if (cet < this.seasonStart) {
-                this.currentRoundText = "PRE-SEASON";
-                this.currentPhase = "Awaiting Week 1";
+                this.currentRoundText = "PRE-SEASON"; this.currentPhase = "Awaiting Week 1";
                 const diff = this.seasonStart - cet;
-                const d = Math.floor(diff / 864e5), h = Math.floor((diff % 864e5) / 36e5), m = Math.floor((diff % 36e5) / 6e4), s = Math.floor((diff % 6e4) / 1e3);
-                this.phaseCountdown = `${d}d : ${h}h : ${m}m : ${s}s`;
-                this.week = 1;
-                return;
+                const d = Math.floor(diff/864e5), h = Math.floor((diff%864e5)/36e5), m = Math.floor((diff%36e5)/6e4), s = Math.floor((diff%6e4)/1e3);
+                this.phaseCountdown = `${d}d : ${h}h : ${m}m : ${s}s`; this.week = 1; return;
             }
-
             const diffDays = Math.floor((cet - this.seasonStart) / 864e5);
             this.week = Math.max(1, Math.min(4, Math.floor(diffDays / 7) + 1));
             const day = cet.getDay(), hr = cet.getHours(), min = cet.getMinutes();
-
             let phase = ""; let targetTime = new Date(cet);
             const isR1 = (day >= 1 && day < 4 && !(day === 4 && hr >= 3));
             this.currentRoundText = `Week ${this.week} | Round ${isR1 ? 1 : 2}`;
-
             if (isR1) {
                 if (day === 1 || (day === 2 && hr < 3)) { phase = "Grouping Phase"; targetTime.setDate(cet.getDate() + (day === 1 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
                 else if (day === 2 || (day === 3 && hr < 3)) { phase = "Declaration Stage"; targetTime.setDate(cet.getDate() + (day === 2 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
@@ -139,12 +105,11 @@ window.warRoom = function() {
                 else if (day === 6 || (day === 0 && hr < 3)) { phase = "WAR ACTIVE"; targetTime.setDate(cet.getDate() + (day === 6 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
                 else { phase = "Rest Phase"; targetTime.setDate(cet.getDate() + (day === 0 ? 1 : 7-day+1)); targetTime.setHours(3,0,0,0); }
             }
-
-            this.currentPhase = phase;
-            const dff = targetTime - cet;
+            this.currentPhase = phase; const dff = targetTime - cet;
             this.phaseCountdown = `${Math.floor(dff/36e5)}h : ${Math.floor((dff%36e5)/6e4)}m : ${Math.floor((dff%6e4)/1e3)}s`;
         },
 
+        // --- GROUPING & COMPARISON ---
         getGroupedFaction(fName) {
             const sorted = this.factionData.filter(a => a.faction.toLowerCase().includes(fName.toLowerCase())).sort((a,b) => b.stash - a.stash);
             const groups = []; const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
@@ -153,8 +118,26 @@ window.warRoom = function() {
                 groups.push({ id: Math.floor(i/step)+1, label: `Rank ${i+1}-${Math.min(i+step, 30)}`, alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) });
                 i += step;
             }
-            if (sorted.length > 30) groups.push({ id: groups.length + 1, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) });
+            if (sorted.length > 30) { groups.push({ id: groups.length + 1, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) }); }
             return groups;
+        },
+
+        autoExpandMyGroup() {
+            const me = this.alliances.find(a => a.name === this.myAllianceName);
+            if (me) {
+                const groups = this.getGroupedFaction(me.faction);
+                const myG = groups.find(g => g.alliances.some(x => x.id === me.id));
+                if (myG) { const key = `${me.faction}-${myG.id}`; if(!this.openGroups.includes(key)) this.openGroups.push(key); }
+            }
+        },
+
+        openComparison(targetAlliance) {
+            const me = this.alliances.find(a => a.name === this.myAllianceName);
+            if (!me) return alert("Please select your Reference Alliance in the sidebar first.");
+            this.comparisonTarget = {
+                me: { name: me.name, tag: me.tag, roster: this.getPlayersForAlliance(me.id) },
+                them: { name: targetAlliance.name, tag: targetAlliance.tag, roster: this.getPlayersForAlliance(targetAlliance.id) }
+            };
         },
 
         // --- HELPERS ---
@@ -169,12 +152,10 @@ window.warRoom = function() {
             return groups;
         },
         getFilteredRefList() {
-            if (!this.refSearch) return []; // Hide list unless searching
-            return [...this.alliances]
-                .filter(a => a.tag.toLowerCase().includes(this.refSearch.toLowerCase()) || a.name.toLowerCase().includes(this.refSearch.toLowerCase()))
-                .sort((a,b) => a.name.localeCompare(b.name))
-                .slice(0, 8); // Only show top 8 matches for speed
+            if (!this.refSearch) return [];
+            return [...this.alliances].filter(a => a.tag.toLowerCase().includes(this.refSearch.toLowerCase()) || a.name.toLowerCase().includes(this.refSearch.toLowerCase())).sort((a,b) => a.name.localeCompare(b.name)).slice(0, 8);
         },
+        setReferenceAlliance(name) { this.myAllianceName = name; localStorage.setItem('war_ref_alliance', name); this.refSearch = ''; this.autoExpandMyGroup(); },
         formatNum(v) { return Math.floor(v || 0).toLocaleString(); },
         formatPower(v) { return (v/1000000000).toFixed(2) + 'B'; },
         matchesSearch(a) { const q = this.searchQuery.toLowerCase(); return !q || a.name.toLowerCase().includes(q) || a.tag.toLowerCase().includes(q); },
@@ -198,8 +179,7 @@ window.warRoom = function() {
             if (data) { this.authenticated = true; this.managerName = data.manager_name; localStorage.setItem('war_admin_key', this.passInput); }
         },
         async saveCitiesToDB() {
-            const a = this.alliances.find(x => x.tag === this.editTag);
-            if (!a) return;
+            const a = this.alliances.find(x => x.tag === this.editTag); if (!a) return;
             await this.client.from('cities').upsert({ alliance_id: a.id, l1:a.l1, l2:a.l2, l3:a.l3, l4:a.l4, l5:a.l5, l6:a.l6 });
             alert("Saved!"); await this.fetchData();
         },
@@ -210,8 +190,7 @@ window.warRoom = function() {
         async processImport() {
             this.isImporting = true;
             try {
-                const cleanData = JSON.parse(this.importData);
-                let count = 0;
+                const cleanData = JSON.parse(this.importData); let count = 0;
                 for (const item of cleanData) {
                     const alliance = this.alliances.find(a => a.tag.toLowerCase() === item.tag.toLowerCase());
                     if (alliance) { await this.client.from('history').insert({ alliance_id: alliance.id, copper: item.stash }); count++; }
@@ -222,6 +201,7 @@ window.warRoom = function() {
         },
         getCityCount(n) { const a = this.alliances.find(x => x.tag === this.editTag); return a ? a['l'+n] : 0; },
         getTotalCities() { const a = this.alliances.find(x => x.tag === this.editTag); return a ? [1,2,3,4,5,6].reduce((s,i)=>s+Number(a['l'+i]),0) : 0; },
-        updateCity(n, d) { const a = this.alliances.find(x => x.tag === this.editTag); if (a) { if (d > 0 && this.getTotalCities() >= 6) return alert("Max 6 cities!"); a['l'+n] = Math.max(0, Number(a['l'+n]) + d); }}
+        updateCity(n, d) { const a = this.alliances.find(x => x.tag === this.editTag); if (a) { if (d > 0 && this.getTotalCities() >= 6) return alert("Max 6 cities!"); a['l'+n] = Math.max(0, Number(a['l'+n]) + d); }},
+        saveSettings() { localStorage.setItem('war_ref_alliance', this.myAllianceName); }
     }
 }
