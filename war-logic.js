@@ -1,7 +1,7 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
-        version: '2.4.0',
+        version: '2.4.3',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
@@ -15,7 +15,6 @@ window.warRoom = function() {
         week: 1, seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
 
         async init() {
-            // 1. Version Check & Cache Buster
             const storedVersion = localStorage.getItem('war_app_version');
             if (storedVersion !== this.version) {
                 localStorage.removeItem('war_data_cache');
@@ -23,24 +22,14 @@ window.warRoom = function() {
                 window.location.reload(true);
                 return;
             }
-
             this.client = supabase.createClient(this.sbUrl, this.sbKey);
             this.myAllianceName = localStorage.getItem('war_ref_alliance') || '';
-            
-            // 2. Initial Fetch
             await this.fetchData();
-
-            // 3. Set Dual Intervals
-            // Fast loop: UI Clock digits (1s)
             setInterval(() => this.updateClockOnly(), 1000);
-            // Slow loop: Heavy stash projections (60s)
             setInterval(() => this.refreshStashMath(), 60000);
-
             if (this.myAllianceName) { this.autoExpandMyGroup(); }
-            
             const savedKey = localStorage.getItem('war_admin_key');
             if (savedKey) { this.passInput = savedKey; await this.login(true); }
-            
             this.updateClockOnly();
         },
 
@@ -50,38 +39,46 @@ window.warRoom = function() {
                     this.client.from('war_master_view').select('*'),
                     this.client.from('players').select('*').order('thp', { ascending: false })
                 ]);
-                
                 this.alliances = resM.data || [];
                 this.players = resP.data || [];
-                
                 this.refreshStashMath();
-                this.debugStatus = `Strategic Intel Ready`;
-            } catch (e) { 
-                console.error(e); 
-                this.debugStatus = "Sync Error"; 
-            }
+            } catch (e) { this.debugStatus = "Sync Error"; }
             this.loading = false;
         },
 
-        // --- SCHEDULING ENGINE ---
-        
-        // This finds the most recent "Lock" point: Mon 03:00, Wed 18:30, or Sat 18:30
+        // --- CALENDAR & SNAPSHOT LOGIC ---
+
+        // Find the most recent "Lock" point: Mon 03:00, Wed 19:00, or Sat 19:00
         getRankingAnchorTime() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
-            
             let anchors = [];
-            for(let i=0; i<14; i++) {
-                let d = new Date(cet); 
-                d.setDate(d.getDate() - i);
-                let day = d.getDay(); // 0=Sun, 1=Mon, 3=Wed, 6=Sat
-                
+            for(let i=0; i<10; i++) {
+                let d = new Date(cet); d.setDate(d.getDate() - i);
+                let day = d.getDay();
                 if (day === 1) anchors.push(new Date(new Date(d).setHours(3,0,0,0)));
-                if (day === 3) anchors.push(new Date(new Date(d).setHours(18,30,0,0)));
-                if (day === 6) anchors.push(new Date(new Date(d).setHours(18,30,0,0)));
+                if (day === 3) anchors.push(new Date(new Date(d).setHours(19,0,0,0)));
+                if (day === 6) anchors.push(new Date(new Date(d).setHours(19,0,0,0)));
             }
-            // Return the most recent one that is in the past
             return anchors.filter(a => a <= cet).sort((a,b) => b - a)[0] || this.seasonStart;
+        },
+
+        // Find the NEXT Grouping Start (Monday or Thursday 03:00 CET)
+        getGroupingStartTime() {
+            const now = new Date();
+            const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
+            let target = new Date(cet);
+            const day = cet.getDay(); // 0=Sun, 1=Mon, 3=Wed, 4=Thu
+
+            // If Mon, Tue, Wed -> Next Grouping is Thu 03:00
+            if (day >= 1 && day < 4 && !(day === 4 && cet.getHours() >= 3)) {
+                target.setDate(cet.getDate() + (4 - day));
+            } else {
+                // If Thu, Fri, Sat, Sun -> Next Grouping is Mon 03:00
+                target.setDate(cet.getDate() + (day === 0 ? 1 : 8 - day));
+            }
+            target.setHours(3, 0, 0, 0);
+            return target;
         },
 
         getNextWarTime() {
@@ -90,7 +87,6 @@ window.warRoom = function() {
             let startPoint = cet < this.seasonStart ? new Date(this.seasonStart) : new Date(cet);
             let target = new Date(startPoint);
             target.setHours(15, 30, 0, 0);
-
             let safety = 0;
             while (safety < 14) {
                 const day = target.getDay();
@@ -101,31 +97,49 @@ window.warRoom = function() {
             return target;
         },
 
-        // --- MATH ENGINE (Throttled to 60s) ---
+        // --- MATH ENGINE ---
         refreshStashMath() {
             const now = new Date();
             const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             const warTime = this.getNextWarTime();
+            const groupingStart = this.getGroupingStartTime();
             const rankingAnchor = this.getRankingAnchorTime();
 
             this.processedAlliances = this.alliances.map(a => {
                 let rate = Number(a.observed_rate) > 0 ? Number(a.observed_rate) : Number(a.city_rate || 0);
                 rate = Math.round(rate / 100) * 100;
-
                 const scoutTime = a.last_scout_time ? new Date(a.last_scout_time) : cetNow;
                 
-                // 1. LIVE PROJECTION (For display)
                 const currentStash = Number(a.last_copper || 0) + (rate * (Math.max(0, (cetNow - scoutTime) / 3600000)));
-                
-                // 2. WAR START PROJECTION (For targeting)
                 const warStash = currentStash + (rate * (Math.max(0, (warTime - cetNow) / 3600000)));
                 
-                // 3. RANKING SNAPSHOT (For grouping/sorting logic)
+                // Prediction: Stash at next grouping start (Mon/Thu 03:00)
+                const groupStash = currentStash + (rate * (Math.max(0, (groupingStart - cetNow) / 3600000)));
+                
+                // Ranking Snapshot: For list positions and matching
                 const rankingStash = Number(a.last_copper || 0) + (rate * (Math.max(0, (rankingAnchor - scoutTime) / 3600000)));
 
-                return { ...a, stash: currentStash, warStash: warStash, rankingStash: rankingStash, rate: rate };
+                return { ...a, stash: currentStash, warStash: warStash, groupStash: groupStash, rankingStash: rankingStash, rate: rate };
             });
-            console.log("Snapshot Math Updated via Anchor: " + rankingAnchor.toLocaleString());
+        },
+
+        // --- GROUPING LOGIC (Using Snapshot) ---
+        getGroupedFaction(fName) {
+            const sorted = this.processedAlliances
+                .filter(a => a.faction.toLowerCase().includes(fName.toLowerCase()))
+                .sort((a,b) => b.rankingStash - a.rankingStash);
+
+            const groups = [];
+            // Adaptive Step logic
+            const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
+            
+            let i = 0;
+            while (i < 30 && i < sorted.length) {
+                groups.push({ id: Math.floor(i/step)+1, label: `Rank ${i+1}-${Math.min(i+step, 30)}`, alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) });
+                i += step;
+            }
+            if (sorted.length > 30) { groups.push({ id: groups.length + 1, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) }); }
+            return groups;
         },
 
         updateClockOnly() {
@@ -138,12 +152,10 @@ window.warRoom = function() {
             const day = cet.getDay(), hr = cet.getHours(), min = cet.getMinutes();
 
             if (cet < this.seasonStart) {
-                this.currentRoundText = "PRE-SEASON";
-                this.currentPhase = "Awaiting Week 1";
+                this.currentRoundText = "PRE-SEASON"; this.currentPhase = "Awaiting Week 1";
                 const diff = this.seasonStart - cet;
                 const d = Math.floor(diff/864e5), h = Math.floor((diff%864e5)/36e5), m = Math.floor((diff%36e5)/6e4), s = Math.floor((diff%6e4)/1e3);
-                this.phaseCountdown = `${d}d : ${h}h : ${m}m : ${s}s`;
-                return;
+                this.phaseCountdown = `${d}d : ${h}h : ${m}m : ${s}s`; return;
             }
 
             const isR1 = (day >= 1 && day < 4 && !(day === 4 && hr >= 3));
@@ -155,50 +167,25 @@ window.warRoom = function() {
                 else if (day === 2 || (day === 3 && hr < 3)) { phase = "Declaration Stage"; targetTime.setDate(cet.getDate() + (day === 2 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
                 else if (day === 3 && hr < 15) { phase = "Invitation Phase"; targetTime.setHours(15,0,0,0); }
                 else if (day === 3 && hr === 15 && min < 30) { phase = "Preparation"; targetTime.setHours(15,30,0,0); }
-                else { phase = "WAR ACTIVE"; targetTime.setDate(cet.getDate() + 1); targetTime.setHours(3,0,0,0); }
+                else if (day === 3 && hr < 18) { phase = "WAR ACTIVE"; targetTime.setHours(18,0,0,0); }
+                else { phase = "Data Window"; targetTime.setDate(cet.getDate() + 1); targetTime.setHours(3,0,0,0); }
             } else {
                 if (day === 4 || (day === 5 && hr < 3)) { phase = "Grouping Phase"; targetTime.setDate(cet.getDate() + (day === 4 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
                 else if (day === 5 || (day === 6 && hr < 3)) { phase = "Declaration Stage"; targetTime.setDate(cet.getDate() + (day === 5 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
                 else if (day === 6 && hr < 15) { phase = "Invitation Phase"; targetTime.setHours(15,0,0,0); }
                 else if (day === 6 && hr === 15 && min < 30) { phase = "Preparation"; targetTime.setHours(15,30,0,0); }
-                else if (day === 6 || (day === 0 && hr < 3)) { phase = "WAR ACTIVE"; targetTime.setDate(cet.getDate() + (day === 6 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
+                else if (day === 6 && hr < 18) { phase = "WAR ACTIVE"; targetTime.setHours(18,0,0,0); }
                 else { phase = "Rest Phase"; targetTime.setDate(cet.getDate() + (day === 0 ? 1 : 7-day+1)); targetTime.setHours(3,0,0,0); }
             }
-            this.currentPhase = phase;
-            const dff = targetTime - cet;
+            this.currentPhase = phase; const dff = targetTime - cet;
             this.phaseCountdown = `${Math.floor(dff/36e5)}h : ${Math.floor((dff%36e5)/6e4)}m : ${Math.floor((dff%6e4)/1e3)}s`;
         },
 
-        // --- GROUPING LOGIC (Using Snapshot) ---
-        getGroupedFaction(fName) {
-            // Sort by RANKING STASH (the snapshot), not the live fluctuating stash
-            const sorted = this.processedAlliances
-                .filter(a => a.faction.toLowerCase().includes(fName.toLowerCase()))
-                .sort((a,b) => b.rankingStash - a.rankingStash);
-
-            const groups = [];
-            const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
-            
-            let i = 0;
-            while (i < 30 && i < sorted.length) {
-                groups.push({ 
-                    id: Math.floor(i/step)+1, 
-                    label: `Rank ${i+1}-${Math.min(i+step, 30)}`, 
-                    alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) 
-                });
-                i += step;
-            }
-            if (sorted.length > 30) {
-                groups.push({ id: groups.length + 1, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) });
-            }
-            return groups;
-        },
-
         // --- HELPERS ---
-        get knsGroups() { return this.getGroupedFaction('Kage'); },
-        get kbtGroups() { return this.getGroupedFaction('Koubu'); },
         get knsTotalStash() { return this.processedAlliances.filter(a => a.faction.toLowerCase().includes('kage')).reduce((s, a) => s + a.stash, 0); },
         get kbtTotalStash() { return this.processedAlliances.filter(a => a.faction.toLowerCase().includes('koubu')).reduce((s, a) => s + a.stash, 0); },
+        get knsGroups() { return this.getGroupedFaction('Kage'); },
+        get kbtGroups() { return this.getGroupedFaction('Koubu'); },
         get groupedForces() {
             const groups = {};
             this.processedAlliances.forEach(a => { if (!groups[a.server]) groups[a.server] = []; groups[a.server].push(a); });
@@ -240,10 +227,8 @@ window.warRoom = function() {
         isMatch(t) { 
             const me = this.alliances.find(a => a.name === this.myAllianceName); 
             if (!me || !t.faction || !me.faction || t.faction === me.faction || t.faction === 'Unassigned') return false; 
-            const myGroups = this.getGroupedFaction(me.faction);
-            const myG = myGroups.find(g => g.alliances.some(x => x.id === me.id))?.id;
-            const targetGroups = this.getGroupedFaction(t.faction);
-            const taG = targetGroups.find(g => g.alliances.some(x => x.tag === t.tag))?.id;
+            const myG = this.getGroupedFaction(me.faction).find(g => g.alliances.some(x => x.id === me.id))?.id;
+            const taG = this.getGroupedFaction(t.faction).find(g => g.alliances.some(x => x.tag === t.tag))?.id;
             return myG && taG && myG === taG; 
         },
         async login(isAuto = false) {
