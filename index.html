@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>War Intelligence Command</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=0">
+    <title>War Command</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -11,59 +11,69 @@
     <style>
         [x-cloak] { display: none !important; }
         body { background: #020617; color: #f8fafc; font-family: 'Inter', sans-serif; overflow-x: hidden; }
-        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(51, 65, 85, 0.5); }
-        .kns-card { border-left: 5px solid #ef4444; background: linear-gradient(90deg, rgba(239, 68, 68, 0.05) 0%, transparent 100%); }
-        .kbt-card { border-left: 5px solid #3b82f6; background: linear-gradient(90deg, rgba(59, 130, 246, 0.05) 0%, transparent 100%); }
-        .match-glow { border: 2px solid #fbbf24 !important; box-shadow: 0 0 20px rgba(251, 191, 36, 0.3); transform: scale(1.01); }
-        .tag-badge { background: rgba(6, 182, 212, 0.1); color: #22d3ee; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-weight: 800; font-size: 10px; border: 1px solid rgba(6, 182, 212, 0.3); }
-        .warehouse-box { border: 1px dashed rgba(251, 191, 36, 0.2); padding: 2px; border-radius: 4px; text-align: center; }
-        .total-box { background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.4); padding: 2px; border-radius: 4px; text-align: center; }
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .modal-overlay { background: rgba(0, 0, 0, 0.9); backdrop-filter: blur(8px); position: fixed; inset: 0; z-index: 250; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .modal-content { background: #0f172a; width: 100%; max-width: 900px; max-height: 80vh; border-radius: 24px; border: 1px solid #334155; overflow: hidden; display: flex; flex-direction: column; }
+        .glass { background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(12px); border: 1px solid rgba(51, 65, 85, 0.5); }
+        .kns-card { border-left: 4px solid #ef4444; background: linear-gradient(90deg, rgba(239, 68, 68, 0.05) 0%, transparent 100%); }
+        .kbt-card { border-left: 4px solid #3b82f6; background: linear-gradient(90deg, rgba(59, 130, 246, 0.05) 0%, transparent 100%); }
+        .match-glow { border: 1px solid #fbbf24 !important; box-shadow: 0 0 15px rgba(251, 191, 36, 0.2); }
+        .tag-badge { background: rgba(6, 182, 212, 0.1); color: #22d3ee; padding: 1px 4px; border-radius: 4px; font-family: monospace; font-weight: 800; font-size: 9px; border: 1px solid rgba(6, 182, 212, 0.3); }
+        .warehouse-box { border: 1px dashed rgba(251, 191, 36, 0.2); border-radius: 4px; padding: 4px 2px; }
+        .total-box { background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.4); border-radius: 4px; padding: 4px 2px; }
+        .modal-overlay { background: rgba(0, 0, 0, 0.9); backdrop-filter: blur(8px); position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 15px; }
+        .modal-content { background: #0f172a; width: 100%; max-width: 500px; max-height: 80vh; border-radius: 20px; border: 1px solid #334155; display: flex; flex-direction: column; }
         .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
     </style>
 </head>
 <body x-data="warRoom()" x-init="init()">
 
-    <!-- MOBILE HEADER -->
-    <div class="lg:hidden glass fixed top-0 w-full z-[100] p-4 flex justify-between items-center border-b border-slate-800">
-        <h1 class="text-xl font-black tracking-tighter text-cyan-500 italic uppercase leading-none">War Intel</h1>
-        <div :class="updateStatusColor" class="text-[9px] font-black uppercase italic">
-             Update: <span x-text="lastGlobalUpdate"></span>
+    <!-- MOBILE REF PICKER MODAL -->
+    <div x-show="showMobileRefPicker" class="modal-overlay" x-cloak>
+        <div class="modal-content p-6 space-y-4" @click.away="showMobileRefPicker = false">
+            <div class="flex justify-between items-center">
+                <h3 class="text-amber-500 font-black uppercase italic">Select My Alliance</h3>
+                <button @click="showMobileRefPicker = false" class="text-slate-400">✕</button>
+            </div>
+            <input type="text" x-model="refSearch" placeholder="Enter Tag or Name..." class="w-full bg-black border border-slate-700 p-4 rounded-xl text-white outline-none uppercase font-bold italic">
+            <div class="max-h-60 overflow-y-auto space-y-2">
+                <template x-for="a in getFilteredRefList()">
+                    <div @click="setReferenceAlliance(a.name)" class="p-3 bg-slate-900 rounded-lg flex justify-between">
+                        <span class="font-bold text-white uppercase" x-text="'[' + a.tag + '] ' + a.name"></span>
+                        <span class="text-cyan-500 font-mono text-[10px]" x-text="'#'+a.server"></span>
+                    </div>
+                </template>
+            </div>
         </div>
     </div>
 
     <!-- COMPARISON MODAL -->
     <div x-show="comparisonTarget" class="modal-overlay" x-cloak>
         <div class="modal-content shadow-2xl" @click.away="comparisonTarget = null">
-            <div class="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-                <h3 class="text-xl font-black uppercase italic text-amber-500">Tactical Comparison</h3>
-                <button @click="comparisonTarget = null" class="text-slate-400 hover:text-white text-2xl">×</button>
+            <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+                <h3 class="text-sm font-black uppercase italic text-amber-500">Tactical Comparison</h3>
+                <button @click="comparisonTarget = null" class="text-slate-400 text-xl">×</button>
             </div>
-            <div class="flex-1 overflow-y-auto p-6 grid grid-cols-2 gap-8 scrollbar-hide">
+            <div class="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-4">
                 <template x-if="comparisonTarget">
-                    <div class="space-y-4">
-                        <div class="text-center pb-4 border-b border-slate-800">
-                            <div class="text-[10px] font-black text-cyan-500 uppercase italic">Friendly Force</div>
-                            <div class="text-lg font-black text-white uppercase" x-text="`[${comparisonTarget.me.tag}] ${comparisonTarget.me.name}`"></div>
+                    <div class="space-y-4 border-r border-slate-800 pr-2">
+                        <div class="text-center pb-2 border-b border-slate-800">
+                            <div class="text-[10px] font-black text-cyan-500 uppercase" x-text="comparisonTarget.me.tag"></div>
+                            <div class="text-[11px] font-bold text-white uppercase truncate" x-text="comparisonTarget.me.name"></div>
                         </div>
                         <div class="space-y-1">
                             <template x-for="p in comparisonTarget.me.roster">
-                                <div class="flex justify-between text-[10px] font-bold uppercase py-1 border-b border-slate-900 font-mono"><span class="text-slate-400" x-text="p.name"></span><span class="text-cyan-500" x-text="formatNum(p.thp)"></span></div>
+                                <div class="flex justify-between text-[9px] font-bold uppercase py-1 border-b border-slate-900 font-mono text-slate-400"><span class="truncate pr-1" x-text="p.name"></span><span class="text-cyan-500" x-text="formatNum(p.thp / 1000000) + 'M'"></span></div>
                             </template>
                         </div>
                     </div>
                 </template>
                 <template x-if="comparisonTarget">
                     <div class="space-y-4">
-                        <div class="text-center pb-4 border-b border-slate-800">
-                            <div class="text-[10px] font-black text-red-500 uppercase italic">Target Intel</div>
-                            <div class="text-lg font-black text-white uppercase" x-text="`[${comparisonTarget.them.tag}] ${comparisonTarget.them.name}`"></div>
+                        <div class="text-center pb-2 border-b border-slate-800">
+                            <div class="text-[10px] font-black text-red-500 uppercase" x-text="comparisonTarget.them.tag"></div>
+                            <div class="text-[11px] font-bold text-white uppercase truncate" x-text="comparisonTarget.them.name"></div>
                         </div>
                         <div class="space-y-1">
                             <template x-for="p in comparisonTarget.them.roster">
-                                <div class="flex justify-between text-[10px] font-bold uppercase py-1 border-b border-slate-900 font-mono"><span class="text-slate-400" x-text="p.name"></span><span class="text-red-400" x-text="formatNum(p.thp)"></span></div>
+                                <div class="flex justify-between text-[9px] font-bold uppercase py-1 border-b border-slate-900 font-mono text-slate-400"><span class="truncate pr-1" x-text="p.name"></span><span class="text-red-400" x-text="formatNum(p.thp / 1000000) + 'M'"></span></div>
                             </template>
                         </div>
                     </div>
@@ -72,25 +82,26 @@
         </div>
     </div>
 
-    <div class="flex h-screen overflow-hidden pt-14 lg:pt-0">
-        <!-- SIDEBAR (HIDDEN ON MOBILE) -->
-        <aside class="hidden lg:flex w-80 h-full glass p-6 flex-col gap-6 shadow-2xl border-r border-slate-800 z-[110] scrollbar-hide overflow-y-auto">
+    <!-- MAIN APP STRUCTURE -->
+    <div class="flex h-screen overflow-hidden pt-0 lg:pt-0">
+        
+        <!-- SIDEBAR (DESKTOP ONLY) -->
+        <aside class="hidden lg:flex w-80 h-full glass p-6 flex-col gap-6 shadow-2xl border-r border-slate-800 z-[110] overflow-y-auto">
+            <h1 class="text-2xl font-black text-cyan-500 italic uppercase">War Intel</h1>
             
-            <!-- TIMER -->
-            <div class="p-4 bg-slate-900 border border-amber-500/20 rounded-2xl shadow-lg">
+            <div class="p-4 bg-slate-900 border border-amber-500/20 rounded-2xl">
                 <div class="flex justify-between items-center mb-1 text-[10px] font-black text-amber-500 uppercase italic">
                     <span x-text="currentRoundText"></span>
                     <span class="text-[12px] font-mono text-white" x-text="displayClock"></span>
                 </div>
-                <div class="text-xs font-black text-white uppercase mb-1 leading-none" x-text="currentPhase"></div>
+                <div class="text-xs font-black text-white uppercase mb-1" x-text="currentPhase"></div>
                 <div class="text-2xl font-mono font-black text-amber-400 text-center border-t border-slate-800 pt-2" x-text="phaseCountdown"></div>
             </div>
 
-            <!-- NAVIGATION -->
             <nav class="flex flex-col gap-2">
-                <button @click="tab = 'warroom'" :class="tab === 'warroom' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase tracking-widest italic leading-none transition-all">Declaration Hub</button>
-                <button @click="tab = 'forces'" :class="tab === 'forces' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase tracking-widest italic leading-none transition-all">Servers Intel</button>
-                <button @click="tab = 'admin'" :class="tab === 'admin' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase italic text-center tracking-widest leading-none transition-all">Admin Console</button>
+                <button @click="tab = 'warroom'" :class="tab === 'warroom' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase italic transition-all">Declaration Hub</button>
+                <button @click="tab = 'forces'" :class="tab === 'forces' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase italic transition-all">Servers Intel</button>
+                <button @click="tab = 'admin'" :class="tab === 'admin' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'" class="w-full text-left px-4 py-3 rounded-xl font-bold text-xs uppercase italic transition-all">Admin Console</button>
             </nav>
 
             <!-- FACTION BALANCE BAR -->
@@ -100,101 +111,96 @@
                     <span class="text-blue-500">Koubu Stash</span>
                 </div>
                 <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden flex">
-                    <div class="h-full bg-red-600 transition-all duration-500" :style="`width: ${factionBalance}%`"></div>
-                    <div class="h-full bg-blue-600 transition-all duration-500" :style="`width: ${100 - factionBalance}%`"></div>
-                </div>
-                <div class="flex justify-between font-mono text-[9px] mt-1 text-slate-400">
-                    <span x-text="formatNum(knsTotalStash)"></span>
-                    <span x-text="formatNum(kbtTotalStash)"></span>
-                </div>
-            </div>
-
-            <!-- REFERENCE PICKER -->
-            <div class="space-y-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block text-center underline italic leading-none">My Reference Alliance</label>
-                <div x-show="myAllianceName" class="flex items-center justify-between bg-cyan-500/10 border border-cyan-500/30 p-2 rounded-lg leading-none">
-                    <div>
-                        <div class="text-[8px] text-cyan-500 font-black uppercase mb-1">Active Selection</div>
-                        <div class="text-xs font-bold text-white uppercase" x-text="myAllianceName"></div>
-                    </div>
-                    <button @click="myAllianceName = ''; localStorage.removeItem('war_ref_alliance')" class="text-slate-500 hover:text-red-500">×</button>
-                </div>
-                <div class="relative">
-                    <input type="text" x-model="refSearch" placeholder="Search Tag..." class="w-full bg-black border border-slate-700 p-2 rounded-lg text-[10px] text-cyan-400 outline-none focus:border-cyan-500 uppercase font-bold italic">
-                    <div x-show="refSearch" class="absolute left-0 w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-2xl z-[150] overflow-hidden">
-                        <template x-for="a in getFilteredRefList()">
-                            <div @click="setReferenceAlliance(a.name)" class="p-2 text-[10px] hover:bg-cyan-600 cursor-pointer border-b border-slate-700 last:border-0 leading-none"><span class="font-black text-cyan-400" x-text="'[' + a.tag + '] '"></span><span class="text-white" x-text="a.name"></span></div>
-                        </template>
-                    </div>
+                    <div class="h-full bg-red-600" :style="`width: ${factionBalance}%`"></div>
+                    <div class="h-full bg-blue-600" :style="`width: ${100 - factionBalance}%`"></div>
                 </div>
             </div>
 
             <div class="mt-auto pt-4 border-t border-slate-800 text-center">
-                <div class="mb-2 text-[9px] font-black uppercase italic tracking-tighter" :class="updateStatusColor">
-                    Database updated: <span x-text="lastGlobalUpdate"></span>
+                <div class="mb-2 text-[9px] font-black uppercase italic" :class="updateStatusColor">
+                    Database updated: <span x-text="lastGlobalUpdate + ' ago'"></span>
                 </div>
-                <button @click="fetchData()" class="w-full mb-4 py-2 bg-cyan-600/20 border border-cyan-500/30 rounded-xl text-cyan-400 text-[10px] font-bold uppercase tracking-widest leading-none transition-all">Sync Intel</button>
-                <p class="text-[8px] text-slate-700 font-mono uppercase tracking-widest">Command v<span x-text="version"></span></p>
+                <button @click="fetchData()" class="w-full py-2 bg-cyan-600/20 border border-cyan-500/30 rounded-xl text-cyan-400 text-[10px] font-bold uppercase tracking-widest leading-none transition-all">Sync Intel</button>
             </div>
         </aside>
 
         <!-- MAIN WINDOW -->
-        <main class="flex-1 overflow-y-auto p-4 lg:p-8 scrollbar-hide text-left pb-24 lg:pb-8">
-            <template x-if="loading"><div class="flex items-center justify-center h-full text-cyan-500 font-mono animate-pulse uppercase italic tracking-widest text-xl font-black">Decrypting_Tactical_Intel...</div></template>
+        <main class="flex-1 overflow-y-auto p-4 lg:p-8 scrollbar-hide pb-24 lg:pb-8">
+            
+            <!-- MOBILE TOP TARGETING HEADER -->
+            <div class="lg:hidden mb-4 p-4 glass rounded-2xl border border-amber-500/30 flex items-center justify-between">
+                <div @click="showMobileRefPicker = true" class="cursor-pointer">
+                    <div class="text-[8px] text-amber-500 font-black uppercase italic mb-0.5">My Reference Alliance</div>
+                    <div class="text-sm font-black text-white uppercase flex items-center gap-1">
+                        <span x-text="myAllianceName || 'Select Alliance...'"></span>
+                        <svg class="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"></path></svg>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div class="text-[8px] text-slate-500 font-black uppercase mb-0.5" x-text="currentPhase"></div>
+                    <div class="text-xs font-mono font-black text-amber-400" x-text="phaseCountdown"></div>
+                </div>
+            </div>
+
+            <template x-if="loading"><div class="flex items-center justify-center h-full text-cyan-500 font-mono animate-pulse text-sm">DECRYPTING_INTEL...</div></template>
 
             <div x-show="!loading" x-cloak>
+                
+                <!-- DECLARATION HUB -->
                 <div x-show="tab === 'warroom'">
-                    <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-4">
-                        <h2 class="text-3xl lg:text-4xl font-black uppercase italic text-amber-500 tracking-tighter leading-none">Declaration Hub</h2>
-                        <input type="text" x-model="searchQuery" placeholder="Search Tag or Alliance..." class="bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm text-white outline-none w-full lg:w-96 focus:ring-2 focus:ring-amber-500 italic font-bold">
-                    </div>
-
-                    <!-- MOBILE FACTION BALANCE BAR -->
-                    <div class="lg:hidden mb-6 p-4 glass rounded-2xl border border-slate-800">
-                        <div class="flex justify-between text-[10px] font-black uppercase mb-2 italic">
-                            <span class="text-red-500">Kage Stash</span>
-                            <span class="text-blue-500">Koubu Stash</span>
-                        </div>
-                        <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-                            <div class="h-full bg-red-600 shadow-[0_0_10px_rgba(239,68,68,0.5)]" :style="`width: ${factionBalance}%`"></div>
-                            <div class="h-full bg-blue-600 shadow-[0_0_10px_rgba(59,130,246,0.5)]" :style="`width: ${100 - factionBalance}%`"></div>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
                         <template x-for="faction in ['Kage', 'Koubu']">
                             <div class="space-y-4">
-                                <h3 class="text-center font-black uppercase py-3 glass rounded-xl border italic tracking-widest leading-none" :class="faction === 'Kage' ? 'text-red-500 border-red-500/20' : 'text-blue-500 border-blue-500/20'" x-text="faction === 'Kage' ? 'Kage no Sato Standings' : 'Koubu Standings'"></h3>
+                                <h3 class="text-center text-sm font-black uppercase py-2 lg:py-3 glass rounded-xl border italic" :class="faction === 'Kage' ? 'text-red-500 border-red-500/20' : 'text-blue-500 border-blue-500/20'" x-text="faction + ' Standings'"></h3>
                                 <template x-for="group in (faction === 'Kage' ? knsGroups : kbtGroups)">
                                     <div class="space-y-1">
-                                        <div @click="toggleGroup(faction, group.id)" class="flex justify-between items-center px-4 py-3 bg-slate-900/80 rounded-xl cursor-pointer hover:bg-slate-800 border border-slate-800 transition-all leading-none"><span class="text-xs font-black uppercase text-slate-300" x-text="group.label"></span><span class="text-slate-500 font-bold" x-text="isGroupOpen(faction, group.id) ? '−' : '+'"></span></div>
-                                        <div x-show="isGroupOpen(faction, group.id)" x-transition class="space-y-2 pt-2 pb-4 px-2">
+                                        <div @click="toggleGroup(faction, group.id)" class="flex justify-between items-center px-4 py-2 bg-slate-900/80 rounded-xl cursor-pointer border border-slate-800"><span class="text-[11px] font-black uppercase text-slate-300" x-text="group.label"></span><span class="text-slate-500" x-text="isGroupOpen(faction, group.id) ? '−' : '+'"></span></div>
+                                        <div x-show="isGroupOpen(faction, group.id)" x-transition class="space-y-2 pt-2 pb-4">
                                             <template x-for="a in group.alliances">
-                                                <div class="glass p-4 rounded-2xl transition-all relative overflow-hidden" :class="[isMatch(a) ? 'match-glow' : '', faction === 'Kage' ? 'kns-card' : 'kbt-card']">
-                                                    <div class="flex justify-between items-start mb-4 leading-none">
-                                                        <div>
-                                                            <div class="flex items-center gap-2 mb-1 text-left leading-none"><span class="text-[10px] font-black text-slate-500" x-text="'#'+a.factionRank"></span><span class="tag-badge" x-text="a.tag"></span><span class="font-black text-lg uppercase text-white leading-tight" x-text="a.name"></span></div>
-                                                            <div class="flex flex-col text-left leading-none space-y-1 mt-1">
-                                                                <span class="text-[9px] font-bold text-slate-500 uppercase" x-text="'Power: ' + formatPower(a.power)"></span>
-                                                                <div class="flex items-center gap-2">
-                                                                    <span class="text-[9px] font-black text-cyan-400" x-text="'#' + a.server"></span>
-                                                                    <span class="text-[9px] text-amber-500 font-black uppercase" x-text="'Rate: ~+' + formatNum(a.rate) + '/h'"></span>
-                                                                </div>
-                                                                <div class="text-[9px] font-black italic uppercase mt-1" :class="getBracketInfo(a.factionRank).color" x-text="'Match Forecast: ' + getBracketInfo(a.factionRank).label"></div>
+                                                <div class="glass p-3 lg:p-4 rounded-2xl transition-all relative overflow-hidden" :class="[isMatch(a) ? 'match-glow' : '', faction === 'Kage' ? 'kns-card' : 'kbt-card']">
+                                                    
+                                                    <!-- Top Section: Stats & Rank -->
+                                                    <div class="flex justify-between items-start mb-3">
+                                                        <div class="flex-1 min-w-0 pr-2 text-left">
+                                                            <div class="flex items-center gap-1.5 mb-1 leading-none">
+                                                                <span class="text-[10px] font-black text-slate-600" x-text="'#'+a.factionRank"></span>
+                                                                <span class="tag-badge" x-text="a.tag"></span>
+                                                                <span class="font-black text-sm lg:text-lg uppercase text-white truncate" x-text="a.name"></span>
+                                                            </div>
+                                                            <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-[9px] font-bold text-slate-500 uppercase">
+                                                                <span class="text-cyan-400" x-text="'#' + a.server"></span>
+                                                                <span x-text="'Pow: ' + formatPower(a.power)"></span>
+                                                                <span class="text-amber-500" x-text="'+' + formatNum(a.rate) + '/h'"></span>
                                                             </div>
                                                         </div>
-                                                        <div class="flex gap-2">
-                                                            <div class="bg-slate-900 border border-slate-800 p-2 rounded-xl text-right leading-none min-w-[70px] lg:min-w-[80px]"><div class="text-[7px] text-slate-500 uppercase font-black mb-1 italic">Live Stash</div><div class="text-sm lg:text-base font-mono font-black text-white" x-text="'~' + formatNum(a.stash)"></div></div>
-                                                            <div class="bg-amber-500/10 border border-amber-500/30 p-2 rounded-xl text-right leading-none min-w-[70px] lg:min-w-[80px]"><div class="text-[7px] text-amber-600 uppercase font-black mb-1 italic">Next Group</div><div class="text-sm lg:text-base font-mono font-black text-amber-500" x-text="'~' + formatNum(a.groupStash)"></div></div>
+                                                        <div class="text-right flex flex-col items-end">
+                                                            <div class="text-[9px] font-black uppercase italic mb-0.5 tracking-tighter" :class="getBracketInfo(a.factionRank).color" x-text="getBracketInfo(a.factionRank).label"></div>
+                                                            <div x-show="isMatch(a)" class="h-6 w-16">
+                                                                <button @click="openComparison(a)" class="w-full h-full bg-amber-500 hover:bg-amber-400 text-black text-[9px] font-black uppercase rounded">Intel</button>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                    <div class="grid grid-cols-3 lg:grid-cols-6 gap-1 border-t border-slate-800/50 pt-3">
-                                                        <div class="warehouse-box"><div class="text-[6px] text-slate-600 uppercase font-black leading-none mb-1">WH</div><div class="text-[8px] font-black text-amber-500" x-text="'~' + formatNum(a.warStash * 0.03)"></div></div>
-                                                        <div class="warehouse-box"><div class="text-[6px] text-slate-600 uppercase font-black leading-none mb-1">WH</div><div class="text-[8px] font-black text-amber-500" x-text="'~' + formatNum(a.warStash * 0.03)"></div></div>
-                                                        <div class="warehouse-box"><div class="text-[6px] text-slate-600 uppercase font-black leading-none mb-1">WH</div><div class="text-[8px] font-black text-amber-500" x-text="'~' + formatNum(a.warStash * 0.03)"></div></div>
-                                                        <div class="warehouse-box"><div class="text-[6px] text-slate-600 uppercase font-black leading-none mb-1">CTR</div><div class="text-[8px] font-black text-cyan-400" x-text="'~' + formatNum(a.warStash * 0.06)"></div></div>
-                                                        <div class="total-box"><div class="text-[6px] text-amber-600 uppercase font-black leading-none mb-1">Total</div><div class="text-[8px] font-black text-white" x-text="'~' + formatNum(a.warStash * 0.15)"></div></div>
-                                                        <div class="flex items-center justify-end pl-1"><button x-show="isMatch(a)" @click="openComparison(a)" class="w-full h-full bg-amber-500 hover:bg-amber-400 text-black text-[9px] font-black uppercase rounded py-1 transition-all">Compare</button></div>
+
+                                                    <!-- Stash Section (Mobile Redesign) -->
+                                                    <div class="flex gap-2 mb-3">
+                                                        <div class="flex-1 bg-slate-950/50 border border-slate-800 p-2 rounded-xl text-center">
+                                                            <div class="text-[7px] text-slate-500 uppercase font-black mb-0.5">Live Stash</div>
+                                                            <div class="text-xs font-mono font-black text-white" x-text="'~' + formatNum(a.stash)"></div>
+                                                        </div>
+                                                        <div class="flex-1 bg-amber-500/5 border border-amber-500/20 p-2 rounded-xl text-center">
+                                                            <div class="text-[7px] text-amber-600 uppercase font-black mb-0.5 italic">Next Ranking</div>
+                                                            <div class="text-xs font-mono font-black text-amber-500" x-text="'~' + formatNum(a.rankingStash)"></div>
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- Warehouse Grid -->
+                                                    <div class="grid grid-cols-3 lg:grid-cols-6 gap-1 border-t border-slate-800/50 pt-3 text-center">
+                                                        <div class="warehouse-box"><div class="text-[6px] text-slate-600 uppercase font-black mb-0.5">WH</div><div class="text-[8px] font-black text-amber-500" x-text="formatNum(a.warStash * 0.03)"></div></div>
+                                                        <div class="warehouse-box"><div class="text-[6px] text-slate-600 uppercase font-black mb-0.5">WH</div><div class="text-[8px] font-black text-amber-500" x-text="formatNum(a.warStash * 0.03)"></div></div>
+                                                        <div class="warehouse-box"><div class="text-[6px] text-slate-600 uppercase font-black mb-0.5">WH</div><div class="text-[8px] font-black text-amber-500" x-text="formatNum(a.warStash * 0.03)"></div></div>
+                                                        <div class="warehouse-box"><div class="text-[6px] text-slate-600 uppercase font-black mb-0.5">CTR</div><div class="text-[8px] font-black text-cyan-400" x-text="formatNum(a.warStash * 0.06)"></div></div>
+                                                        <div class="total-box"><div class="text-[6px] text-amber-600 uppercase font-black mb-0.5">Total</div><div class="text-[8px] font-black text-white" x-text="formatNum(a.warStash * 0.15)"></div></div>
+                                                        <div class="hidden lg:flex warehouse-box items-center justify-center font-black text-[10px] text-slate-700 uppercase">Calc</div>
                                                     </div>
                                                 </div>
                                             </template>
@@ -206,27 +212,26 @@
                     </div>
                 </div>
 
-                <!-- SERVERS -->
+                <!-- SERVERS INTEL -->
                 <div x-show="tab === 'forces'" x-cloak>
-                    <div class="flex items-center mb-6"><h3 class="text-4xl font-black uppercase italic text-emerald-500 tracking-widest leading-none underline">Servers Intelligence</h3></div>
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                         <template x-for="type in ['Ally', 'Enemy']">
-                            <div class="space-y-6 text-left">
-                                <h3 class="text-xl font-black uppercase italic border-b pb-2 tracking-widest leading-none" :class="type === 'Ally' ? 'text-emerald-500 border-emerald-500/30' : 'text-red-500 border-red-500/30'" x-text="type === 'Ally' ? 'Our Coalition' : 'Opposing Coalition'"></h3>
+                            <div class="space-y-6">
+                                <h3 class="text-xl font-black uppercase italic border-b pb-2 tracking-widest text-left" :class="type === 'Ally' ? 'text-emerald-500 border-emerald-500/30' : 'text-red-500 border-red-500/30'" x-text="type === 'Ally' ? 'Our Coalition' : 'Opposing Coalition'"></h3>
                                 <template x-for="(serverGroup, server) in groupedForces">
                                     <template x-if="(type === 'Ally' && isAllyServer(serverGroup)) || (type === 'Enemy' && !isAllyServer(serverGroup))">
                                         <div class="mb-2">
-                                            <div @click="toggleServerCollapse(server)" class="glass p-4 rounded-xl flex justify-between items-center cursor-pointer border border-slate-800 hover:bg-slate-800/50 transition-all leading-none font-bold"><h4 class="text-lg font-black font-mono text-white uppercase" x-text="'Warzone #' + server"></h4><span class="text-slate-500 font-bold" x-text="isServerOpen(server) ? '−' : '+'"></span></div>
-                                            <div x-show="isServerOpen(server)" x-transition class="mt-2 space-y-2 pl-4">
+                                            <div @click="toggleServerCollapse(server)" class="glass p-4 rounded-xl flex justify-between items-center cursor-pointer border border-slate-800 hover:bg-slate-800/50 transition-all font-bold"><h4 class="text-sm font-black font-mono text-white uppercase" x-text="'Warzone #' + server"></h4><span class="text-slate-500" x-text="isServerOpen(server) ? '−' : '+'"></span></div>
+                                            <div x-show="isServerOpen(server)" class="mt-2 space-y-2 pl-2">
                                                 <template x-for="a in serverGroup">
-                                                    <div class="glass p-3 rounded-xl border border-slate-800 hover:border-cyan-500/30 transition-all">
-                                                        <div @click="toggleAlliance(a.id)" class="flex justify-between items-center cursor-pointer leading-none">
-                                                            <div class="text-left leading-none"><div class="flex items-center gap-2 mb-1"><span class="tag-badge" x-text="a.tag"></span><span class="font-bold text-white text-sm uppercase" x-text="a.name"></span></div><div class="text-[9px] text-slate-500 font-black uppercase italic mt-1" x-text="'Top Player: ' + (a.ace_name || 'N/A')"></div></div>
-                                                            <div class="text-right"><div class="text-[8px] text-slate-500 uppercase tracking-widest font-black mb-1">Top THP</div><div class="font-mono font-black text-amber-500 text-lg" x-text="formatNum(a.ace_thp)"></div></div>
+                                                    <div class="glass p-3 rounded-xl border border-slate-800">
+                                                        <div @click="toggleAlliance(a.id)" class="flex justify-between items-center cursor-pointer">
+                                                            <div class="text-left"><div class="flex items-center gap-2 mb-1"><span class="tag-badge" x-text="a.tag"></span><span class="font-bold text-white text-[11px] uppercase" x-text="a.name"></span></div><div class="text-[8px] text-slate-500 font-black uppercase italic" x-text="'Ace: ' + (a.ace_name || 'N/A')"></div></div>
+                                                            <div class="text-right"><div class="font-mono font-black text-amber-500 text-xs" x-text="formatNum(a.ace_thp / 1000000) + 'M'"></div></div>
                                                         </div>
-                                                        <div x-show="isAllianceOpen(a.id)" x-transition class="mt-3 border-t border-slate-800 pt-3 space-y-1">
+                                                        <div x-show="isAllianceOpen(a.id)" class="mt-3 border-t border-slate-800 pt-3 space-y-1">
                                                             <template x-for="p in getPlayersForAlliance(a.id)">
-                                                                <div class="flex justify-between text-[10px] uppercase font-bold text-slate-400 font-mono leading-none py-1"><span x-text="p.name"></span><span class="text-cyan-500" x-text="formatNum(p.thp)"></span></div>
+                                                                <div class="flex justify-between text-[9px] uppercase font-bold text-slate-400 font-mono py-1"><span x-text="p.name"></span><span class="text-cyan-500" x-text="formatNum(p.thp / 1000000) + 'M'"></span></div>
                                                             </template>
                                                         </div>
                                                     </div>
@@ -240,41 +245,39 @@
                     </div>
                 </div>
 
-                <!-- ADMIN -->
-                <div x-show="tab === 'admin'" x-cloak class="max-w-2xl mx-auto mt-10 pb-20">
+                <!-- ADMIN (DESKTOP ONLY) -->
+                <div x-show="tab === 'admin'" x-cloak class="hidden lg:block max-w-2xl mx-auto mt-10 pb-20">
                     <div x-show="!authenticated" class="glass p-12 rounded-3xl border border-slate-800 text-center shadow-2xl">
-                        <h2 class="text-2xl font-black uppercase tracking-widest italic text-red-500 leading-none underline mb-4">Commander Authentication</h2>
+                        <h2 class="text-2xl font-black uppercase italic text-red-500 underline mb-4">Authentication Required</h2>
                         <input type="password" x-model="passInput" placeholder="Security Key" class="w-full bg-slate-950 border border-slate-800 p-4 rounded-2xl mb-4 text-center text-white outline-none focus:ring-2 focus:ring-red-500 font-bold italic">
-                        <button @click="login()" class="w-full py-4 bg-red-600 rounded-2xl font-black uppercase tracking-widest shadow-lg transition-all active:scale-95">Verify Key</button>
+                        <button @click="login()" class="w-full py-4 bg-red-600 rounded-2xl font-black uppercase tracking-widest shadow-lg">Verify Key</button>
                     </div>
-                    <div x-show="authenticated" class="space-y-8">
-                        <div class="glass p-8 rounded-3xl border border-cyan-500/30 shadow-2xl">
-                            <h3 class="text-xl font-black uppercase text-cyan-400 italic mb-2 tracking-widest leading-none underline">AI Intelligence Parser</h3>
-                            <p class="text-[9px] text-slate-500 mb-4 uppercase italic leading-tight">1. Paste OCR text -> 2. Copy Prompt -> 3. Use AI -> 4. Paste JSON result -> 5. Process</p>
-                            <textarea x-model="importData" rows="6" placeholder="Paste data here..." class="w-full bg-black p-4 rounded-xl font-mono text-xs text-cyan-400 outline-none focus:ring-1 focus:ring-cyan-500 mb-4 scrollbar-hide"></textarea>
+                    <div x-show="authenticated" class="space-y-8 text-left">
+                        <div class="glass p-8 rounded-3xl border border-cyan-500/30">
+                            <h3 class="text-xl font-black uppercase text-cyan-400 italic mb-4 underline">AI Parser</h3>
+                            <textarea x-model="importData" rows="6" placeholder="Paste OCR data..." class="w-full bg-black p-4 rounded-xl font-mono text-xs text-cyan-400 outline-none mb-4"></textarea>
                             <div class="flex gap-4">
-                                <button @click="copyScoutPrompt()" class="flex-1 py-4 bg-blue-600 hover:bg-blue-500 rounded-xl font-black uppercase text-xs shadow-lg transition-all active:scale-95">📋 Copy AI Prompt</button>
-                                <button @click="processImport()" :disabled="isImporting" class="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-black uppercase text-xs shadow-lg disabled:opacity-50 transition-all active:scale-95">🚀 Process JSON</button>
+                                <button @click="copyScoutPrompt()" class="flex-1 py-4 bg-blue-600 rounded-xl font-black uppercase text-xs">Copy AI Prompt</button>
+                                <button @click="processImport()" :disabled="isImporting" class="flex-1 py-4 bg-emerald-600 rounded-xl font-black uppercase text-xs">Process JSON</button>
                             </div>
                         </div>
-                        <div class="glass p-8 rounded-3xl border border-amber-500/30">
-                            <h3 class="text-xl font-black uppercase text-amber-500 italic mb-4 tracking-widest underline leading-none">Manual City Editor</h3>
-                            <select x-model="editTag" class="w-full bg-slate-950 p-4 rounded-xl border border-slate-800 text-white mb-6 outline-none focus:ring-1 focus:ring-amber-500">
+                        <div class="glass p-8 rounded-3xl border border-amber-500/30 text-left">
+                            <h3 class="text-xl font-black uppercase text-amber-500 italic mb-4 underline">City Editor</h3>
+                            <select x-model="editTag" class="w-full bg-slate-950 p-4 rounded-xl border border-slate-800 text-white mb-6 outline-none">
                                 <option value="">Select Alliance...</option>
                                 <template x-for="a in alliances.sort((x,y) => x.name.localeCompare(y.name))"><option :value="a.tag" x-text="`[${a.tag}] ${a.name}`"></option></template>
                             </select>
                             <template x-if="editTag">
                                 <div class="grid grid-cols-1 gap-3">
                                     <template x-for="n in 6">
-                                        <div class="bg-slate-900/50 p-4 rounded-2xl flex justify-between items-center border border-slate-800">
+                                        <div class="bg-slate-900/50 p-4 rounded-2xl flex justify-between items-center border border-slate-800 text-left">
                                             <span class="text-xs font-black uppercase text-slate-400 leading-none" x-text="'City Lvl ' + n"></span>
-                                            <div class="flex items-center gap-6"><button @click="updateCity(n, -1)" class="w-10 h-10 bg-slate-800 rounded font-bold text-xl hover:bg-red-500 transition-colors">-</button><span class="text-2xl font-black text-cyan-400 w-8 text-center" x-text="getCityCount(n)"></span><button @click="updateCity(n, 1)" class="w-10 h-10 bg-slate-800 rounded font-bold text-xl hover:bg-emerald-500 transition-colors">+</button></div>
+                                            <div class="flex items-center gap-6"><button @click="updateCity(n, -1)" class="w-10 h-10 bg-slate-800 rounded font-bold text-xl hover:bg-red-500">-</button><span class="text-2xl font-black text-cyan-400 w-8 text-center" x-text="getCityCount(n)"></span><button @click="updateCity(n, 1)" class="w-10 h-10 bg-slate-800 rounded font-bold text-xl hover:bg-emerald-500">+</button></div>
                                         </div>
                                     </template>
-                                    <div class="p-4 bg-black/40 rounded-xl text-center text-[10px] text-slate-500 uppercase tracking-widest font-black leading-none" x-text="'Slots Used: ' + getTotalCities() + ' / 6'"></div>
                                 </div>
                             </template>
-                            <button @click="saveCitiesToDB()" class="w-full py-4 bg-amber-600 hover:bg-amber-500 rounded-2xl font-black uppercase text-xs mt-6 transition-all shadow-lg active:scale-95 leading-none">Commit City Changes</button>
+                            <button @click="saveCitiesToDB()" class="w-full py-4 bg-amber-600 rounded-2xl font-black uppercase text-xs mt-6 leading-none">Commit City Changes</button>
                         </div>
                     </div>
                 </div>
@@ -282,21 +285,17 @@
         </main>
     </div>
 
-    <!-- MOBILE BOTTOM NAVIGATION -->
+    <!-- MOBILE BOTTOM NAVIGATION (WITHOUT ADMIN) -->
     <div class="lg:hidden fixed bottom-0 left-0 w-full glass border-t border-slate-800 flex justify-around p-3 z-[200] pb-safe">
-        <button @click="tab = 'warroom'" :class="tab === 'warroom' ? 'text-amber-500' : 'text-slate-500'" class="flex flex-col items-center">
+        <button @click="tab = 'warroom'" :class="tab === 'warroom' ? 'text-amber-500' : 'text-slate-500'" class="flex flex-col items-center flex-1">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
             <span class="text-[9px] font-black uppercase mt-1">WarRoom</span>
         </button>
-        <button @click="tab = 'forces'" :class="tab === 'forces' ? 'text-cyan-500' : 'text-slate-500'" class="flex flex-col items-center">
+        <button @click="tab = 'forces'" :class="tab === 'forces' ? 'text-cyan-500' : 'text-slate-500'" class="flex flex-col items-center flex-1">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
             <span class="text-[9px] font-black uppercase mt-1">Servers</span>
         </button>
-        <button @click="tab = 'admin'" :class="tab === 'admin' ? 'text-red-500' : 'text-slate-500'" class="flex flex-col items-center">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-            <span class="text-[9px] font-black uppercase mt-1">Admin</span>
-        </button>
-        <button @click="fetchData()" class="flex flex-col items-center text-slate-500 active:text-cyan-400">
+        <button @click="fetchData()" class="flex flex-col items-center flex-1 text-slate-500 active:text-cyan-400">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
             <span class="text-[9px] font-black uppercase mt-1">Sync</span>
         </button>
