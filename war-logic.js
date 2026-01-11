@@ -1,7 +1,7 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
-        version: '2.3.7',
+        version: '2.3.8',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
@@ -12,11 +12,9 @@ window.warRoom = function() {
         authenticated: false, passInput: '', editTag: '', managerName: '',
         importData: '', isImporting: false, comparisonTarget: null,
         displayClock: '', currentRoundText: '', currentPhase: '', phaseCountdown: '',
-        week: 1,
-        seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
+        week: 1, seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
 
         async init() {
-            // 1. Version Check & Cache Management
             const storedVersion = localStorage.getItem('war_app_version');
             if (storedVersion !== this.version) {
                 localStorage.removeItem('war_data_cache');
@@ -28,21 +26,13 @@ window.warRoom = function() {
             this.client = supabase.createClient(this.sbUrl, this.sbKey);
             this.myAllianceName = localStorage.getItem('war_ref_alliance') || '';
             
-            // 2. Load from local cache for instant UI
-            const cached = localStorage.getItem('war_data_cache');
-            if (cached) {
-                this.alliances = JSON.parse(cached);
-                this.refreshStashMath();
-                this.loading = false;
-            }
-
-            // 3. Fresh background fetch
+            // 1. Initial Fetch
             await this.fetchData();
 
-            // 4. Set Intervals
-            // FAST: 1s for the countdown text
+            // 2. Dual-Interval System
+            // Visual Clock: 1s
             setInterval(() => this.updateClockOnly(), 1000);
-            // SLOW: 60s for the heavy stash math
+            // Stash Projections: 60s
             setInterval(() => this.refreshStashMath(), 60000);
 
             if (this.myAllianceName) { this.autoExpandMyGroup(); }
@@ -58,31 +48,33 @@ window.warRoom = function() {
                     this.client.from('war_master_view').select('*'),
                     this.client.from('players').select('*').order('thp', { ascending: false })
                 ]);
+                
                 this.alliances = resM.data || [];
                 this.players = resP.data || [];
                 
-                // Save fresh data to cache
-                localStorage.setItem('war_data_cache', JSON.stringify(this.alliances));
-                
                 this.refreshStashMath();
-                this.debugStatus = `Intel Synced`;
-            } catch (e) { console.error(e); this.debugStatus = "Sync Error"; }
+                this.debugStatus = `Strategic Intel Synced`;
+            } catch (e) { 
+                console.error(e); 
+                this.debugStatus = "Sync Error"; 
+            }
             this.loading = false;
         },
 
-        // --- MATH ENGINE (Throttled to 60s) ---
+        // --- MATH ENGINE (Priority: Observed > City) ---
         refreshStashMath() {
             const now = new Date();
             const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             const warTime = this.getNextWarTime();
 
             this.processedAlliances = this.alliances.map(a => {
-                // Rate Priority: Observed (Scouts) > Passive (Cities)
+                // Determine rate: Observed (scouts) first, then city passive rate
                 let rate = Number(a.observed_rate) > 0 ? Number(a.observed_rate) : Number(a.city_rate || 0);
                 
-                // Round to 100 (Safety check even if DB already did it)
+                // Final rounding to 100 just to be safe
                 rate = Math.round(rate / 100) * 100;
 
+                // Time math
                 const scoutTime = a.last_scout_time ? new Date(a.last_scout_time) : cetNow;
                 const hoursSinceScout = Math.max(0, (cetNow - scoutTime) / 3600000);
                 const hoursUntilWar = Math.max(0, (warTime - cetNow) / 3600000);
@@ -92,7 +84,6 @@ window.warRoom = function() {
 
                 return { ...a, stash: currentStash, warStash: warStash, rate: rate };
             });
-            console.log("Strategic math refreshed.");
         },
 
         getNextWarTime() {
@@ -110,7 +101,7 @@ window.warRoom = function() {
             return target;
         },
 
-        // --- CLOCK (Fast loop) ---
+        // --- CLOCK (Lightweight loop) ---
         updateClockOnly() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
@@ -153,7 +144,6 @@ window.warRoom = function() {
             this.phaseCountdown = `${Math.floor(dff/36e5)}h : ${Math.floor((dff%36e5)/6e4)}m : ${Math.floor((dff%6e4)/1e3)}s`;
         },
 
-        // --- GROUPING LOGIC ---
         getGroupedFaction(fName) {
             const sorted = this.processedAlliances
                 .filter(a => a.faction.toLowerCase().includes(fName.toLowerCase()))
@@ -177,7 +167,7 @@ window.warRoom = function() {
             return groups;
         },
 
-        // --- UI HELPERS ---
+        // --- HELPERS ---
         get knsGroups() { return this.getGroupedFaction('Kage'); },
         get kbtGroups() { return this.getGroupedFaction('Koubu'); },
         get knsTotalStash() { return this.processedAlliances.filter(a => a.faction.toLowerCase().includes('kage')).reduce((s, a) => s + a.stash, 0); },
@@ -227,8 +217,6 @@ window.warRoom = function() {
             const taG = this.getGroupedFaction(t.faction).find(g => g.alliances.some(x => x.tag === t.tag))?.id;
             return myG && taG && myG === taG; 
         },
-
-        // --- ADMIN ---
         async login(isAuto = false) {
             const { data } = await this.client.from('authorized_managers').select('manager_name').eq('secret_key', this.passInput).single();
             if (data) { this.authenticated = true; this.managerName = data.manager_name; localStorage.setItem('war_admin_key', this.passInput); }
@@ -240,7 +228,7 @@ window.warRoom = function() {
             alert("Saved!"); await this.fetchData();
         },
         copyScoutPrompt() { 
-            const prompt = `I am providing raw OCR text from a gaming leaderboard. Extract Tag, Name, and Stash value into a JSON array.\nRules: remove punctuation from numbers, extract tag from [], return ONLY JSON.\nFormat: [{"tag": "MAD1", "name": "Madness", "stash": 15000000}]\nOCR DATA:\n${this.importData}`;
+            const prompt = `Convert the following OCR text into JSON array: [{"tag": "TAG", "name": "Name", "stash": 12345000}]. DATA:\n${this.importData}`;
             navigator.clipboard.writeText(prompt); alert("AI Prompt Copied!");
         },
         async processImport() {
@@ -250,11 +238,18 @@ window.warRoom = function() {
                 let count = 0;
                 for (const item of cleanData) {
                     const alliance = this.alliances.find(a => a.tag.toLowerCase() === item.tag.toLowerCase());
-                    if (alliance) { await this.client.from('history').insert({ alliance_id: alliance.id, copper: item.stash }); count++; }
+                    if (alliance) {
+                        await this.client.from('history').insert({ alliance_id: alliance.id, copper: item.stash });
+                        count++;
+                    }
                 }
-                alert(`Imported ${count} scouts.`); this.importData = '';
-            } catch (e) { alert("Invalid JSON."); }
-            this.isImporting = false; await this.fetchData();
+                alert(`Imported ${count} scouts.`);
+                this.importData = '';
+            } catch (e) {
+                alert("Error: JSON format invalid.");
+            }
+            this.isImporting = false;
+            await this.fetchData();
         },
         getCityCount(n) { const a = this.alliances.find(x => x.tag === this.editTag); return a ? a['l'+n] : 0; },
         getTotalCities() { const a = this.alliances.find(x => x.tag === this.editTag); return a ? [1,2,3,4,5,6].reduce((s,i)=>s+Number(a['l'+i]),0) : 0; },
