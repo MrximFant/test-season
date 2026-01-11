@@ -1,11 +1,9 @@
 window.warRoom = function() {
     return {
-        // --- CONFIG ---
-        version: '2.5.0',
+        version: '2.6.0',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
-        // --- STATE ---
         tab: 'warroom', loading: true, mobileMenu: false, searchQuery: '', refSearch: '', debugStatus: 'Ready',
         alliances: [], processedAlliances: [], players: [], 
         openGroups: [], openServers: [], openAlliances: [],
@@ -13,6 +11,7 @@ window.warRoom = function() {
         importData: '', isImporting: false, comparisonTarget: null,
         displayClock: '', currentRoundText: '', currentPhase: '', phaseCountdown: '',
         week: 1, seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
+        showMobileRefPicker: false,
 
         async init() {
             const storedVersion = localStorage.getItem('war_app_version');
@@ -50,19 +49,14 @@ window.warRoom = function() {
             this.loading = false;
         },
 
-        // --- NEW HELPERS ---
-
         get lastGlobalUpdate() {
             if (!this.alliances.length) return 'No Data';
-            const latest = this.alliances
-                .filter(a => a.last_scout_time)
-                .map(a => new Date(a.last_scout_time))
-                .sort((a, b) => b - a)[0];
+            const latest = this.alliances.filter(a => a.last_scout_time).map(a => new Date(a.last_scout_time)).sort((a, b) => b - a)[0];
             if (!latest) return 'Never';
             const diff = (new Date() - latest) / 60000;
-            if (diff < 60) return Math.floor(diff) + 'm ago';
-            if (diff < 1440) return Math.floor(diff / 60) + 'h ago';
-            return Math.floor(diff / 1440) + 'd ago';
+            if (diff < 60) return Math.floor(diff) + 'm';
+            if (diff < 1440) return Math.floor(diff / 60) + 'h';
+            return Math.floor(diff / 1440) + 'd';
         },
 
         get updateStatusColor() {
@@ -80,13 +74,11 @@ window.warRoom = function() {
         },
 
         getBracketInfo(rank) {
-            if (rank > 30) return { label: 'Low Bracket', color: 'text-slate-500' };
+            if (rank > 30) return { label: 'Rank 31+', color: 'text-slate-500' };
             const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
             const bNum = Math.ceil(rank / step);
             return { label: 'Bracket ' + bNum, color: 'text-cyan-400' };
         },
-
-        // --- CALENDAR LOGIC ---
 
         getRankingAnchorTime() {
             const now = new Date();
@@ -130,7 +122,6 @@ window.warRoom = function() {
             return target;
         },
 
-        // --- REFRESH ENGINE ---
         refreshStashMath() {
             const now = new Date();
             const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
@@ -156,7 +147,6 @@ window.warRoom = function() {
             const sorted = this.processedAlliances
                 .filter(a => a.faction.toLowerCase().includes(fName.toLowerCase()))
                 .sort((a,b) => b.rankingStash - a.rankingStash);
-
             const groups = [];
             const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
             let i = 0;
@@ -184,20 +174,20 @@ window.warRoom = function() {
             }
 
             const isR1 = (day >= 1 && day < 4 && !(day === 4 && hr >= 3));
-            this.currentRoundText = `Week ${this.week} | Round ${isR1 ? 1 : 2}`;
+            this.currentRoundText = `W${this.week} | R${isR1 ? 1 : 2}`;
 
             let phase = ""; let targetTime = new Date(cet);
             if (isR1) {
-                if (day === 1 || (day === 2 && hr < 3)) { phase = "Grouping Phase"; targetTime.setDate(cet.getDate() + (day === 1 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
-                else if (day === 2 || (day === 3 && hr < 3)) { phase = "Declaration Stage"; targetTime.setDate(cet.getDate() + (day === 2 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
-                else if (day === 3 && hr < 15) { phase = "Invitation Phase"; targetTime.setHours(15,0,0,0); }
+                if (day === 1 || (day === 2 && hr < 3)) { phase = "Grouping"; targetTime.setDate(cet.getDate() + (day === 1 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
+                else if (day === 2 || (day === 3 && hr < 3)) { phase = "Declaration"; targetTime.setDate(cet.getDate() + (day === 2 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
+                else if (day === 3 && hr < 15) { phase = "Invitation"; targetTime.setHours(15,0,0,0); }
                 else if (day === 3 && hr === 15 && cet.getMinutes() < 30) { phase = "Preparation"; targetTime.setHours(15,30,0,0); }
                 else if (day === 3 && hr < 18) { phase = "WAR ACTIVE"; targetTime.setHours(18,0,0,0); }
                 else { phase = "Data Window"; targetTime.setDate(cet.getDate() + 1); targetTime.setHours(3,0,0,0); }
             } else {
-                if (day === 4 || (day === 5 && hr < 3)) { phase = "Grouping Phase"; targetTime.setDate(cet.getDate() + (day === 4 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
-                else if (day === 5 || (day === 6 && hr < 3)) { phase = "Declaration Stage"; targetTime.setDate(cet.getDate() + (day === 5 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
-                else if (day === 6 && hr < 15) { phase = "Invitation Phase"; targetTime.setHours(15,0,0,0); }
+                if (day === 4 || (day === 5 && hr < 3)) { phase = "Grouping"; targetTime.setDate(cet.getDate() + (day === 4 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
+                else if (day === 5 || (day === 6 && hr < 3)) { phase = "Declaration"; targetTime.setDate(cet.getDate() + (day === 5 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
+                else if (day === 6 && hr < 15) { phase = "Invitation"; targetTime.setHours(15,0,0,0); }
                 else if (day === 6 && hr === 15 && cet.getMinutes() < 30) { phase = "Preparation"; targetTime.setHours(15,30,0,0); }
                 else if (day === 6 && hr < 18) { phase = "WAR ACTIVE"; targetTime.setHours(18,0,0,0); }
                 else { phase = "Rest Phase"; targetTime.setDate(cet.getDate() + (day === 0 ? 1 : 7-day+1)); targetTime.setHours(3,0,0,0); }
@@ -206,7 +196,6 @@ window.warRoom = function() {
             this.phaseCountdown = `${Math.floor(dff/36e5)}h : ${Math.floor((dff%36e5)/6e4)}m : ${Math.floor((dff%6e4)/1e3)}s`;
         },
 
-        // --- HELPERS ---
         get knsTotalStash() { return this.processedAlliances.filter(a => a.faction.toLowerCase().includes('kage')).reduce((s, a) => s + a.stash, 0); },
         get kbtTotalStash() { return this.processedAlliances.filter(a => a.faction.toLowerCase().includes('koubu')).reduce((s, a) => s + a.stash, 0); },
         get knsGroups() { return this.getGroupedFaction('Kage'); },
@@ -221,7 +210,7 @@ window.warRoom = function() {
             if (!this.refSearch) return [];
             return [...this.alliances].filter(a => a.tag.toLowerCase().includes(this.refSearch.toLowerCase()) || a.name.toLowerCase().includes(this.refSearch.toLowerCase())).sort((a,b) => a.name.localeCompare(b.name)).slice(0, 8);
         },
-        setReferenceAlliance(name) { this.myAllianceName = name; localStorage.setItem('war_ref_alliance', name); this.refSearch = ''; this.autoExpandMyGroup(); },
+        setReferenceAlliance(name) { this.myAllianceName = name; localStorage.setItem('war_ref_alliance', name); this.refSearch = ''; this.showMobileRefPicker = false; this.autoExpandMyGroup(); },
         autoExpandMyGroup() {
             const me = this.alliances.find(a => a.name === this.myAllianceName);
             if (me) {
