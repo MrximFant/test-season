@@ -1,7 +1,7 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
-        version: '2.4.4',
+        version: '2.5.0',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
@@ -22,11 +22,15 @@ window.warRoom = function() {
                 window.location.reload(true);
                 return;
             }
+
             this.client = supabase.createClient(this.sbUrl, this.sbKey);
             this.myAllianceName = localStorage.getItem('war_ref_alliance') || '';
+            
             await this.fetchData();
+
             setInterval(() => this.updateClockOnly(), 1000);
             setInterval(() => this.refreshStashMath(), 60000);
+
             if (this.myAllianceName) { this.autoExpandMyGroup(); }
             const savedKey = localStorage.getItem('war_admin_key');
             if (savedKey) { this.passInput = savedKey; await this.login(true); }
@@ -46,9 +50,44 @@ window.warRoom = function() {
             this.loading = false;
         },
 
+        // --- NEW HELPERS ---
+
+        get lastGlobalUpdate() {
+            if (!this.alliances.length) return 'No Data';
+            const latest = this.alliances
+                .filter(a => a.last_scout_time)
+                .map(a => new Date(a.last_scout_time))
+                .sort((a, b) => b - a)[0];
+            if (!latest) return 'Never';
+            const diff = (new Date() - latest) / 60000;
+            if (diff < 60) return Math.floor(diff) + 'm ago';
+            if (diff < 1440) return Math.floor(diff / 60) + 'h ago';
+            return Math.floor(diff / 1440) + 'd ago';
+        },
+
+        get updateStatusColor() {
+            const latest = this.alliances.filter(a => a.last_scout_time).map(a => new Date(a.last_scout_time)).sort((a, b) => b - a)[0];
+            if (!latest) return 'text-slate-500';
+            const diffHours = (new Date() - latest) / 3600000;
+            if (diffHours < 4) return 'text-emerald-400';
+            if (diffHours < 12) return 'text-amber-400';
+            return 'text-red-500';
+        },
+
+        get factionBalance() {
+            const total = this.knsTotalStash + this.kbtTotalStash;
+            return total === 0 ? 50 : (this.knsTotalStash / total) * 100;
+        },
+
+        getBracketInfo(rank) {
+            if (rank > 30) return { label: 'Low Bracket', color: 'text-slate-500' };
+            const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
+            const bNum = Math.ceil(rank / step);
+            return { label: 'Bracket ' + bNum, color: 'text-cyan-400' };
+        },
+
         // --- CALENDAR LOGIC ---
 
-        // Find the most recent trigger: Mon 03:00, Wed 18:00, or Sat 18:00
         getRankingAnchorTime() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
@@ -56,14 +95,13 @@ window.warRoom = function() {
             for(let i=0; i<10; i++) {
                 let d = new Date(cet); d.setDate(d.getDate() - i);
                 let day = d.getDay();
-                if (day === 1) anchors.push(new Date(new Date(d).setHours(3,0,0,0)));    // Mon 03:00
-                if (day === 3) anchors.push(new Date(new Date(d).setHours(18,0,0,0)));   // Wed 18:00
-                if (day === 6) anchors.push(new Date(new Date(d).setHours(18,0,0,0)));   // Sat 18:00
+                if (day === 1) anchors.push(new Date(new Date(d).setHours(3,0,0,0))); 
+                if (day === 3) anchors.push(new Date(new Date(d).setHours(18,0,0,0)));
+                if (day === 6) anchors.push(new Date(new Date(d).setHours(18,0,0,0)));
             }
             return anchors.filter(a => a <= cet).sort((a,b) => b - a)[0] || this.seasonStart;
         },
 
-        // Find the NEXT Grouping Start (Monday or Thursday 03:00 CET)
         getGroupingStartTime(baseTime) {
             let target = new Date(baseTime);
             const day = target.getDay();
@@ -92,13 +130,11 @@ window.warRoom = function() {
             return target;
         },
 
-        // --- MATH ENGINE ---
+        // --- REFRESH ENGINE ---
         refreshStashMath() {
             const now = new Date();
             const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             const warTime = this.getNextWarTime();
-            
-            // Logic: Groupings are based on where alliances will be at the START of the grouping phase
             const rankingAnchor = this.getRankingAnchorTime();
             const groupStartForRanking = this.getGroupingStartTime(rankingAnchor);
             const nextGroupStartForUI = this.getGroupingStartTime(cetNow);
@@ -107,26 +143,19 @@ window.warRoom = function() {
                 let rate = Number(a.observed_rate) > 0 ? Number(a.observed_rate) : Number(a.city_rate || 0);
                 rate = Math.round(rate / 100) * 100;
                 const scoutTime = a.last_scout_time ? new Date(a.last_scout_time) : cetNow;
-                
                 const currentStash = Number(a.last_copper || 0) + (rate * (Math.max(0, (cetNow - scoutTime) / 3600000)));
                 const warStash = currentStash + (rate * (Math.max(0, (warTime - cetNow) / 3600000)));
-                
-                // Card Display: Stash at next grouping start
                 const groupStash = currentStash + (rate * (Math.max(0, (nextGroupStartForUI - cetNow) / 3600000)));
-                
-                // Grouping Logic: Predicted stash at the start of the current/upcoming round
                 const rankingStash = Number(a.last_copper || 0) + (rate * (Math.max(0, (groupStartForRanking - scoutTime) / 3600000)));
 
                 return { ...a, stash: currentStash, warStash: warStash, groupStash: groupStash, rankingStash: rankingStash, rate: rate };
             });
-            console.log("Groups updated based on target: " + groupStartForRanking.toLocaleString());
         },
 
-        // --- GROUPING LOGIC ---
         getGroupedFaction(fName) {
             const sorted = this.processedAlliances
                 .filter(a => a.faction.toLowerCase().includes(fName.toLowerCase()))
-                .sort((a,b) => b.rankingStash - a.rankingStash); // Sort by predictive snapshot
+                .sort((a,b) => b.rankingStash - a.rankingStash);
 
             const groups = [];
             const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
@@ -143,7 +172,6 @@ window.warRoom = function() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             this.displayClock = cet.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
-
             const diffDays = Math.floor((cet - this.seasonStart) / 864e5);
             this.week = Math.max(1, Math.min(4, Math.floor(diffDays / 7) + 1));
             const day = cet.getDay(), hr = cet.getHours();
@@ -224,10 +252,8 @@ window.warRoom = function() {
         isMatch(t) { 
             const me = this.alliances.find(a => a.name === this.myAllianceName); 
             if (!me || !t.faction || !me.faction || t.faction === me.faction || t.faction === 'Unassigned') return false; 
-            const myGroups = this.getGroupedFaction(me.faction);
-            const myG = myGroups.find(g => g.alliances.some(x => x.id === me.id))?.id;
-            const targetGroups = this.getGroupedFaction(t.faction);
-            const taG = targetGroups.find(g => g.alliances.some(x => x.tag === t.tag))?.id;
+            const myG = this.getGroupedFaction(me.faction).find(g => g.alliances.some(x => x.id === me.id))?.id;
+            const taG = this.getGroupedFaction(t.faction).find(g => g.alliances.some(x => x.tag === t.tag))?.id;
             return myG && taG && myG === taG; 
         },
         async login(isAuto = false) {
