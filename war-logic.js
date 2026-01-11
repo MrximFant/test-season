@@ -1,7 +1,7 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
-        version: '2.4.3',
+        version: '2.4.4',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
@@ -46,9 +46,9 @@ window.warRoom = function() {
             this.loading = false;
         },
 
-        // --- CALENDAR & SNAPSHOT LOGIC ---
+        // --- CALENDAR LOGIC ---
 
-        // Find the most recent "Lock" point: Mon 03:00, Wed 19:00, or Sat 19:00
+        // Find the most recent trigger: Mon 03:00, Wed 18:00, or Sat 18:00
         getRankingAnchorTime() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
@@ -56,26 +56,21 @@ window.warRoom = function() {
             for(let i=0; i<10; i++) {
                 let d = new Date(cet); d.setDate(d.getDate() - i);
                 let day = d.getDay();
-                if (day === 1) anchors.push(new Date(new Date(d).setHours(3,0,0,0)));
-                if (day === 3) anchors.push(new Date(new Date(d).setHours(19,0,0,0)));
-                if (day === 6) anchors.push(new Date(new Date(d).setHours(19,0,0,0)));
+                if (day === 1) anchors.push(new Date(new Date(d).setHours(3,0,0,0)));    // Mon 03:00
+                if (day === 3) anchors.push(new Date(new Date(d).setHours(18,0,0,0)));   // Wed 18:00
+                if (day === 6) anchors.push(new Date(new Date(d).setHours(18,0,0,0)));   // Sat 18:00
             }
             return anchors.filter(a => a <= cet).sort((a,b) => b - a)[0] || this.seasonStart;
         },
 
         // Find the NEXT Grouping Start (Monday or Thursday 03:00 CET)
-        getGroupingStartTime() {
-            const now = new Date();
-            const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
-            let target = new Date(cet);
-            const day = cet.getDay(); // 0=Sun, 1=Mon, 3=Wed, 4=Thu
-
-            // If Mon, Tue, Wed -> Next Grouping is Thu 03:00
-            if (day >= 1 && day < 4 && !(day === 4 && cet.getHours() >= 3)) {
-                target.setDate(cet.getDate() + (4 - day));
+        getGroupingStartTime(baseTime) {
+            let target = new Date(baseTime);
+            const day = target.getDay();
+            if (day >= 1 && day < 4 && !(day === 4 && target.getHours() >= 3)) {
+                target.setDate(target.getDate() + (4 - day));
             } else {
-                // If Thu, Fri, Sat, Sun -> Next Grouping is Mon 03:00
-                target.setDate(cet.getDate() + (day === 0 ? 1 : 8 - day));
+                target.setDate(target.getDate() + (day === 0 ? 1 : 8 - day));
             }
             target.setHours(3, 0, 0, 0);
             return target;
@@ -102,8 +97,11 @@ window.warRoom = function() {
             const now = new Date();
             const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             const warTime = this.getNextWarTime();
-            const groupingStart = this.getGroupingStartTime();
+            
+            // Logic: Groupings are based on where alliances will be at the START of the grouping phase
             const rankingAnchor = this.getRankingAnchorTime();
+            const groupStartForRanking = this.getGroupingStartTime(rankingAnchor);
+            const nextGroupStartForUI = this.getGroupingStartTime(cetNow);
 
             this.processedAlliances = this.alliances.map(a => {
                 let rate = Number(a.observed_rate) > 0 ? Number(a.observed_rate) : Number(a.city_rate || 0);
@@ -113,26 +111,25 @@ window.warRoom = function() {
                 const currentStash = Number(a.last_copper || 0) + (rate * (Math.max(0, (cetNow - scoutTime) / 3600000)));
                 const warStash = currentStash + (rate * (Math.max(0, (warTime - cetNow) / 3600000)));
                 
-                // Prediction: Stash at next grouping start (Mon/Thu 03:00)
-                const groupStash = currentStash + (rate * (Math.max(0, (groupingStart - cetNow) / 3600000)));
+                // Card Display: Stash at next grouping start
+                const groupStash = currentStash + (rate * (Math.max(0, (nextGroupStartForUI - cetNow) / 3600000)));
                 
-                // Ranking Snapshot: For list positions and matching
-                const rankingStash = Number(a.last_copper || 0) + (rate * (Math.max(0, (rankingAnchor - scoutTime) / 3600000)));
+                // Grouping Logic: Predicted stash at the start of the current/upcoming round
+                const rankingStash = Number(a.last_copper || 0) + (rate * (Math.max(0, (groupStartForRanking - scoutTime) / 3600000)));
 
                 return { ...a, stash: currentStash, warStash: warStash, groupStash: groupStash, rankingStash: rankingStash, rate: rate };
             });
+            console.log("Groups updated based on target: " + groupStartForRanking.toLocaleString());
         },
 
-        // --- GROUPING LOGIC (Using Snapshot) ---
+        // --- GROUPING LOGIC ---
         getGroupedFaction(fName) {
             const sorted = this.processedAlliances
                 .filter(a => a.faction.toLowerCase().includes(fName.toLowerCase()))
-                .sort((a,b) => b.rankingStash - a.rankingStash);
+                .sort((a,b) => b.rankingStash - a.rankingStash); // Sort by predictive snapshot
 
             const groups = [];
-            // Adaptive Step logic
             const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
-            
             let i = 0;
             while (i < 30 && i < sorted.length) {
                 groups.push({ id: Math.floor(i/step)+1, label: `Rank ${i+1}-${Math.min(i+step, 30)}`, alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) });
@@ -149,7 +146,7 @@ window.warRoom = function() {
 
             const diffDays = Math.floor((cet - this.seasonStart) / 864e5);
             this.week = Math.max(1, Math.min(4, Math.floor(diffDays / 7) + 1));
-            const day = cet.getDay(), hr = cet.getHours(), min = cet.getMinutes();
+            const day = cet.getDay(), hr = cet.getHours();
 
             if (cet < this.seasonStart) {
                 this.currentRoundText = "PRE-SEASON"; this.currentPhase = "Awaiting Week 1";
@@ -166,14 +163,14 @@ window.warRoom = function() {
                 if (day === 1 || (day === 2 && hr < 3)) { phase = "Grouping Phase"; targetTime.setDate(cet.getDate() + (day === 1 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
                 else if (day === 2 || (day === 3 && hr < 3)) { phase = "Declaration Stage"; targetTime.setDate(cet.getDate() + (day === 2 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
                 else if (day === 3 && hr < 15) { phase = "Invitation Phase"; targetTime.setHours(15,0,0,0); }
-                else if (day === 3 && hr === 15 && min < 30) { phase = "Preparation"; targetTime.setHours(15,30,0,0); }
+                else if (day === 3 && hr === 15 && cet.getMinutes() < 30) { phase = "Preparation"; targetTime.setHours(15,30,0,0); }
                 else if (day === 3 && hr < 18) { phase = "WAR ACTIVE"; targetTime.setHours(18,0,0,0); }
                 else { phase = "Data Window"; targetTime.setDate(cet.getDate() + 1); targetTime.setHours(3,0,0,0); }
             } else {
                 if (day === 4 || (day === 5 && hr < 3)) { phase = "Grouping Phase"; targetTime.setDate(cet.getDate() + (day === 4 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
                 else if (day === 5 || (day === 6 && hr < 3)) { phase = "Declaration Stage"; targetTime.setDate(cet.getDate() + (day === 5 ? 1 : 0)); targetTime.setHours(3,0,0,0); }
                 else if (day === 6 && hr < 15) { phase = "Invitation Phase"; targetTime.setHours(15,0,0,0); }
-                else if (day === 6 && hr === 15 && min < 30) { phase = "Preparation"; targetTime.setHours(15,30,0,0); }
+                else if (day === 6 && hr === 15 && cet.getMinutes() < 30) { phase = "Preparation"; targetTime.setHours(15,30,0,0); }
                 else if (day === 6 && hr < 18) { phase = "WAR ACTIVE"; targetTime.setHours(18,0,0,0); }
                 else { phase = "Rest Phase"; targetTime.setDate(cet.getDate() + (day === 0 ? 1 : 7-day+1)); targetTime.setHours(3,0,0,0); }
             }
@@ -227,8 +224,10 @@ window.warRoom = function() {
         isMatch(t) { 
             const me = this.alliances.find(a => a.name === this.myAllianceName); 
             if (!me || !t.faction || !me.faction || t.faction === me.faction || t.faction === 'Unassigned') return false; 
-            const myG = this.getGroupedFaction(me.faction).find(g => g.alliances.some(x => x.id === me.id))?.id;
-            const taG = this.getGroupedFaction(t.faction).find(g => g.alliances.some(x => x.tag === t.tag))?.id;
+            const myGroups = this.getGroupedFaction(me.faction);
+            const myG = myGroups.find(g => g.alliances.some(x => x.id === me.id))?.id;
+            const targetGroups = this.getGroupedFaction(t.faction);
+            const taG = targetGroups.find(g => g.alliances.some(x => x.tag === t.tag))?.id;
             return myG && taG && myG === taG; 
         },
         async login(isAuto = false) {
@@ -242,7 +241,7 @@ window.warRoom = function() {
             alert("Saved!"); await this.fetchData();
         },
         copyScoutPrompt() { 
-            const prompt = `Convert the following OCR text into JSON array: [{"tag": "TAG", "name": "Name", "stash": 12345000}]. DATA:\n${this.importData}`;
+            const prompt = `Convert raw OCR text into JSON array: [{"tag": "TAG", "name": "Name", "stash": 12345000}]. DATA:\n${this.importData}`;
             navigator.clipboard.writeText(prompt); alert("AI Prompt Copied!");
         },
         async processImport() {
