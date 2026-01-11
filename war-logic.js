@@ -1,10 +1,10 @@
 window.warRoom = function() {
     return {
-        version: '2.6.0',
+        version: '2.7.0',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
-        tab: 'warroom', loading: true, mobileMenu: false, searchQuery: '', refSearch: '', debugStatus: 'Ready',
+        tab: 'warroom', loading: true, searchQuery: '', refSearch: '', debugStatus: 'Ready',
         alliances: [], processedAlliances: [], players: [], 
         openGroups: [], openServers: [], openAlliances: [],
         authenticated: false, passInput: '', editTag: '', managerName: '',
@@ -12,24 +12,18 @@ window.warRoom = function() {
         displayClock: '', currentRoundText: '', currentPhase: '', phaseCountdown: '',
         week: 1, seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
         showMobileRefPicker: false,
+        debugTime: null, // Test Warp Variable
+
+        getNow() {
+            return this.debugTime ? new Date(this.debugTime) : new Date();
+        },
 
         async init() {
-            const storedVersion = localStorage.getItem('war_app_version');
-            if (storedVersion !== this.version) {
-                localStorage.removeItem('war_data_cache');
-                localStorage.setItem('war_app_version', this.version);
-                window.location.reload(true);
-                return;
-            }
-
             this.client = supabase.createClient(this.sbUrl, this.sbKey);
             this.myAllianceName = localStorage.getItem('war_ref_alliance') || '';
-            
             await this.fetchData();
-
             setInterval(() => this.updateClockOnly(), 1000);
             setInterval(() => this.refreshStashMath(), 60000);
-
             if (this.myAllianceName) { this.autoExpandMyGroup(); }
             const savedKey = localStorage.getItem('war_admin_key');
             if (savedKey) { this.passInput = savedKey; await this.login(true); }
@@ -53,7 +47,7 @@ window.warRoom = function() {
             if (!this.alliances.length) return 'No Data';
             const latest = this.alliances.filter(a => a.last_scout_time).map(a => new Date(a.last_scout_time)).sort((a, b) => b - a)[0];
             if (!latest) return 'Never';
-            const diff = (new Date() - latest) / 60000;
+            const diff = (this.getNow() - latest) / 60000;
             if (diff < 60) return Math.floor(diff) + 'm';
             if (diff < 1440) return Math.floor(diff / 60) + 'h';
             return Math.floor(diff / 1440) + 'd';
@@ -62,7 +56,7 @@ window.warRoom = function() {
         get updateStatusColor() {
             const latest = this.alliances.filter(a => a.last_scout_time).map(a => new Date(a.last_scout_time)).sort((a, b) => b - a)[0];
             if (!latest) return 'text-slate-500';
-            const diffHours = (new Date() - latest) / 3600000;
+            const diffHours = (this.getNow() - latest) / 3600000;
             if (diffHours < 4) return 'text-emerald-400';
             if (diffHours < 12) return 'text-amber-400';
             return 'text-red-500';
@@ -81,7 +75,7 @@ window.warRoom = function() {
         },
 
         getRankingAnchorTime() {
-            const now = new Date();
+            const now = this.getNow();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             let anchors = [];
             for(let i=0; i<10; i++) {
@@ -107,7 +101,7 @@ window.warRoom = function() {
         },
 
         getNextWarTime() {
-            const now = new Date();
+            const now = this.getNow();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             let startPoint = cet < this.seasonStart ? new Date(this.seasonStart) : new Date(cet);
             let target = new Date(startPoint);
@@ -123,7 +117,7 @@ window.warRoom = function() {
         },
 
         refreshStashMath() {
-            const now = new Date();
+            const now = this.getNow();
             const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             const warTime = this.getNextWarTime();
             const rankingAnchor = this.getRankingAnchorTime();
@@ -138,7 +132,6 @@ window.warRoom = function() {
                 const warStash = currentStash + (rate * (Math.max(0, (warTime - cetNow) / 3600000)));
                 const groupStash = currentStash + (rate * (Math.max(0, (nextGroupStartForUI - cetNow) / 3600000)));
                 const rankingStash = Number(a.last_copper || 0) + (rate * (Math.max(0, (groupStartForRanking - scoutTime) / 3600000)));
-
                 return { ...a, stash: currentStash, warStash: warStash, groupStash: groupStash, rankingStash: rankingStash, rate: rate };
             });
         },
@@ -159,7 +152,7 @@ window.warRoom = function() {
         },
 
         updateClockOnly() {
-            const now = new Date();
+            const now = this.getNow();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             this.displayClock = cet.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
             const diffDays = Math.floor((cet - this.seasonStart) / 864e5);
@@ -229,7 +222,6 @@ window.warRoom = function() {
         },
         formatNum(v) { return Math.floor(v || 0).toLocaleString(); },
         formatPower(v) { return (v/1000000000).toFixed(2) + 'B'; },
-        matchesSearch(a) { const q = this.searchQuery.toLowerCase(); return !q || a.name.toLowerCase().includes(q) || a.tag.toLowerCase().includes(q); },
         toggleGroup(f, id) { const key = `${f}-${id}`; this.openGroups = this.openGroups.includes(key) ? this.openGroups.filter(k => k !== key) : [...this.openGroups, key]; },
         isGroupOpen(f, id) { return this.openGroups.includes(`${f}-${id}`); },
         toggleServerCollapse(s) { this.openServers = this.openServers.includes(s) ? this.openServers.filter(x => x !== s) : [...this.openServers, s]; },
