@@ -1,7 +1,7 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
-        version: '2.3.8',
+        version: '2.4.0',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
@@ -15,6 +15,7 @@ window.warRoom = function() {
         week: 1, seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
 
         async init() {
+            // 1. Version Check & Cache Buster
             const storedVersion = localStorage.getItem('war_app_version');
             if (storedVersion !== this.version) {
                 localStorage.removeItem('war_data_cache');
@@ -26,16 +27,17 @@ window.warRoom = function() {
             this.client = supabase.createClient(this.sbUrl, this.sbKey);
             this.myAllianceName = localStorage.getItem('war_ref_alliance') || '';
             
-            // 1. Initial Fetch
+            // 2. Initial Fetch
             await this.fetchData();
 
-            // 2. Dual-Interval System
-            // Visual Clock: 1s
+            // 3. Set Dual Intervals
+            // Fast loop: UI Clock digits (1s)
             setInterval(() => this.updateClockOnly(), 1000);
-            // Stash Projections: 60s
+            // Slow loop: Heavy stash projections (60s)
             setInterval(() => this.refreshStashMath(), 60000);
 
             if (this.myAllianceName) { this.autoExpandMyGroup(); }
+            
             const savedKey = localStorage.getItem('war_admin_key');
             if (savedKey) { this.passInput = savedKey; await this.login(true); }
             
@@ -53,7 +55,7 @@ window.warRoom = function() {
                 this.players = resP.data || [];
                 
                 this.refreshStashMath();
-                this.debugStatus = `Strategic Intel Synced`;
+                this.debugStatus = `Strategic Intel Ready`;
             } catch (e) { 
                 console.error(e); 
                 this.debugStatus = "Sync Error"; 
@@ -61,47 +63,71 @@ window.warRoom = function() {
             this.loading = false;
         },
 
-        // --- MATH ENGINE (Priority: Observed > City) ---
-        refreshStashMath() {
+        // --- SCHEDULING ENGINE ---
+        
+        // This finds the most recent "Lock" point: Mon 03:00, Wed 18:30, or Sat 18:30
+        getRankingAnchorTime() {
             const now = new Date();
-            const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
-            const warTime = this.getNextWarTime();
-
-            this.processedAlliances = this.alliances.map(a => {
-                // Determine rate: Observed (scouts) first, then city passive rate
-                let rate = Number(a.observed_rate) > 0 ? Number(a.observed_rate) : Number(a.city_rate || 0);
+            const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
+            
+            let anchors = [];
+            for(let i=0; i<14; i++) {
+                let d = new Date(cet); 
+                d.setDate(d.getDate() - i);
+                let day = d.getDay(); // 0=Sun, 1=Mon, 3=Wed, 6=Sat
                 
-                // Final rounding to 100 just to be safe
-                rate = Math.round(rate / 100) * 100;
-
-                // Time math
-                const scoutTime = a.last_scout_time ? new Date(a.last_scout_time) : cetNow;
-                const hoursSinceScout = Math.max(0, (cetNow - scoutTime) / 3600000);
-                const hoursUntilWar = Math.max(0, (warTime - cetNow) / 3600000);
-
-                const currentStash = Number(a.last_copper || 0) + (rate * hoursSinceScout);
-                const warStash = currentStash + (rate * hoursUntilWar);
-
-                return { ...a, stash: currentStash, warStash: warStash, rate: rate };
-            });
+                if (day === 1) anchors.push(new Date(new Date(d).setHours(3,0,0,0)));
+                if (day === 3) anchors.push(new Date(new Date(d).setHours(18,30,0,0)));
+                if (day === 6) anchors.push(new Date(new Date(d).setHours(18,30,0,0)));
+            }
+            // Return the most recent one that is in the past
+            return anchors.filter(a => a <= cet).sort((a,b) => b - a)[0] || this.seasonStart;
         },
 
         getNextWarTime() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
-            let target = new Date(cet);
+            let startPoint = cet < this.seasonStart ? new Date(this.seasonStart) : new Date(cet);
+            let target = new Date(startPoint);
             target.setHours(15, 30, 0, 0);
+
             let safety = 0;
             while (safety < 14) {
                 const day = target.getDay();
-                if ((day === 3 || day === 6) && target > cet) return target;
+                if ((day === 3 || day === 6) && target > startPoint) return target;
                 target.setDate(target.getDate() + 1);
                 safety++;
             }
             return target;
         },
 
-        // --- CLOCK (Lightweight loop) ---
+        // --- MATH ENGINE (Throttled to 60s) ---
+        refreshStashMath() {
+            const now = new Date();
+            const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
+            const warTime = this.getNextWarTime();
+            const rankingAnchor = this.getRankingAnchorTime();
+
+            this.processedAlliances = this.alliances.map(a => {
+                let rate = Number(a.observed_rate) > 0 ? Number(a.observed_rate) : Number(a.city_rate || 0);
+                rate = Math.round(rate / 100) * 100;
+
+                const scoutTime = a.last_scout_time ? new Date(a.last_scout_time) : cetNow;
+                
+                // 1. LIVE PROJECTION (For display)
+                const currentStash = Number(a.last_copper || 0) + (rate * (Math.max(0, (cetNow - scoutTime) / 3600000)));
+                
+                // 2. WAR START PROJECTION (For targeting)
+                const warStash = currentStash + (rate * (Math.max(0, (warTime - cetNow) / 3600000)));
+                
+                // 3. RANKING SNAPSHOT (For grouping/sorting logic)
+                const rankingStash = Number(a.last_copper || 0) + (rate * (Math.max(0, (rankingAnchor - scoutTime) / 3600000)));
+
+                return { ...a, stash: currentStash, warStash: warStash, rankingStash: rankingStash, rate: rate };
+            });
+            console.log("Snapshot Math Updated via Anchor: " + rankingAnchor.toLocaleString());
+        },
+
         updateClockOnly() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
@@ -109,7 +135,6 @@ window.warRoom = function() {
 
             const diffDays = Math.floor((cet - this.seasonStart) / 864e5);
             this.week = Math.max(1, Math.min(4, Math.floor(diffDays / 7) + 1));
-            
             const day = cet.getDay(), hr = cet.getHours(), min = cet.getMinutes();
 
             if (cet < this.seasonStart) {
@@ -121,7 +146,7 @@ window.warRoom = function() {
                 return;
             }
 
-            const isR1 = (day >= 1 && day <= 3);
+            const isR1 = (day >= 1 && day < 4 && !(day === 4 && hr >= 3));
             this.currentRoundText = `Week ${this.week} | Round ${isR1 ? 1 : 2}`;
 
             let phase = ""; let targetTime = new Date(cet);
@@ -144,10 +169,12 @@ window.warRoom = function() {
             this.phaseCountdown = `${Math.floor(dff/36e5)}h : ${Math.floor((dff%36e5)/6e4)}m : ${Math.floor((dff%6e4)/1e3)}s`;
         },
 
+        // --- GROUPING LOGIC (Using Snapshot) ---
         getGroupedFaction(fName) {
+            // Sort by RANKING STASH (the snapshot), not the live fluctuating stash
             const sorted = this.processedAlliances
                 .filter(a => a.faction.toLowerCase().includes(fName.toLowerCase()))
-                .sort((a,b) => b.stash - a.stash);
+                .sort((a,b) => b.rankingStash - a.rankingStash);
 
             const groups = [];
             const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
@@ -213,8 +240,10 @@ window.warRoom = function() {
         isMatch(t) { 
             const me = this.alliances.find(a => a.name === this.myAllianceName); 
             if (!me || !t.faction || !me.faction || t.faction === me.faction || t.faction === 'Unassigned') return false; 
-            const myG = this.getGroupedFaction(me.faction).find(g => g.alliances.some(x => x.id === me.id))?.id;
-            const taG = this.getGroupedFaction(t.faction).find(g => g.alliances.some(x => x.tag === t.tag))?.id;
+            const myGroups = this.getGroupedFaction(me.faction);
+            const myG = myGroups.find(g => g.alliances.some(x => x.id === me.id))?.id;
+            const targetGroups = this.getGroupedFaction(t.faction);
+            const taG = targetGroups.find(g => g.alliances.some(x => x.tag === t.tag))?.id;
             return myG && taG && myG === taG; 
         },
         async login(isAuto = false) {
@@ -238,18 +267,11 @@ window.warRoom = function() {
                 let count = 0;
                 for (const item of cleanData) {
                     const alliance = this.alliances.find(a => a.tag.toLowerCase() === item.tag.toLowerCase());
-                    if (alliance) {
-                        await this.client.from('history').insert({ alliance_id: alliance.id, copper: item.stash });
-                        count++;
-                    }
+                    if (alliance) { await this.client.from('history').insert({ alliance_id: alliance.id, copper: item.stash }); count++; }
                 }
-                alert(`Imported ${count} scouts.`);
-                this.importData = '';
-            } catch (e) {
-                alert("Error: JSON format invalid.");
-            }
-            this.isImporting = false;
-            await this.fetchData();
+                alert(`Imported ${count} scouts.`); this.importData = '';
+            } catch (e) { alert("Error: JSON format invalid."); }
+            this.isImporting = false; await this.fetchData();
         },
         getCityCount(n) { const a = this.alliances.find(x => x.tag === this.editTag); return a ? a['l'+n] : 0; },
         getTotalCities() { const a = this.alliances.find(x => x.tag === this.editTag); return a ? [1,2,3,4,5,6].reduce((s,i)=>s+Number(a['l'+i]),0) : 0; },
