@@ -1,31 +1,26 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
-        version: '2.6.0',
+        version: '2.7.0',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
         // --- STATE ---
         tab: 'warroom', loading: true, searchQuery: '', refSearch: '',
         alliances: [], processedAlliances: [], players: [], 
-        favorites: [], 
-        strikePlan: {}, // Stores selected building indices per allianceId
-        openGroups: [], authenticated: false, passInput: '',
+        favorites: [], strikePlan: {}, openGroups: [],
+        authenticated: false, passInput: '',
         displayClock: '', currentRoundText: '', currentPhase: '', phaseCountdown: '',
         week: 1, seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
-        comparisonTarget: null,
+        comparisonTarget: null, myAllianceName: '',
 
         async init() {
             this.client = supabase.createClient(this.sbUrl, this.sbKey);
             this.myAllianceName = localStorage.getItem('war_ref_alliance') || '';
-            
-            // Load Favorites
             const savedFavs = localStorage.getItem('war_favorites');
             if (savedFavs) this.favorites = JSON.parse(savedFavs);
 
             await this.fetchData();
-            
-            // Start Intervals
             setInterval(() => { this.updateClockOnly(); this.refreshStashMath(); }, 1000);
 
             const savedKey = localStorage.getItem('war_admin_key');
@@ -35,16 +30,14 @@ window.warRoom = function() {
         async fetchData() {
             this.loading = true;
             try {
-                const { data, error } = await this.client.from('war_master_view').select('*');
-                if (error) throw error;
+                const { data } = await this.client.from('war_master_view').select('*');
                 this.alliances = data || [];
                 this.refreshStashMath();
-            } catch (e) { console.error("Database Sync Error:", e); }
+            } catch (e) { console.error(e); }
             this.loading = false;
         },
 
-        // --- STRIKE PLANNER MATH ---
-        // Indices: 0, 1, 2 = Warehouses (3%), 3 = Center (6%)
+        // --- STRIKE CALCULATOR ---
         toggleBuilding(aId, index) {
             if (!this.strikePlan[aId]) this.strikePlan[aId] = [];
             if (this.strikePlan[aId].includes(index)) {
@@ -53,27 +46,61 @@ window.warRoom = function() {
                 this.strikePlan[aId].push(index);
             }
         },
-
         getPlannedPlunder(a) {
             const selected = this.strikePlan[a.id] || [];
-            if (selected.length === 0) return a.warStash * 0.15; // Default to Max Cap
+            if (selected.length === 0) return a.warStash * 0.15;
             let totalPercent = 0;
             selected.forEach(i => { totalPercent += (i === 3 ? 0.06 : 0.03); });
             return a.warStash * totalPercent;
         },
 
-        // --- FAVORITES (STARS) ---
-        isFavorite(a) { return this.favorites.some(f => f.id === a.id); },
-        toggleFavorite(a) {
-            if (this.isFavorite(a)) {
-                this.favorites = this.favorites.filter(f => f.id !== a.id);
-            } else {
-                this.favorites.push(a);
+        // --- GROUPING LOGIC ---
+        getGroupedFaction(fName) {
+            if (!fName || !this.processedAlliances.length) return [];
+            const sorted = this.processedAlliances
+                .filter(a => (a.faction || '').toLowerCase().includes(fName.toLowerCase()))
+                .sort((a,b) => b.rankingStash - a.rankingStash);
+
+            const groups = [];
+            const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
+            let i = 0;
+            while (i < 30 && i < sorted.length) {
+                groups.push({ 
+                    id: Math.floor(i/step)+1, 
+                    label: `Rank ${i+1}-${Math.min(i+step, 30)}`, 
+                    alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1, groupLabel: Math.floor(i/step)+1 })) 
+                });
+                i += step;
             }
-            localStorage.setItem('war_favorites', JSON.stringify(this.favorites));
+            if (sorted.length > 30) { 
+                groups.push({ id: 99, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx, groupLabel: 99 })) }); 
+            }
+            return groups;
         },
 
-        // --- STASH CALCULATIONS ---
+        toggleGroup(f, id) { 
+            const key = `${f}-${id}`; 
+            this.openGroups = this.openGroups.includes(key) ? this.openGroups.filter(k => k !== key) : [...this.openGroups, key]; 
+        },
+        isGroupOpen(f, id) { return this.openGroups.includes(`${f}-${id}`); },
+
+        // --- MATCHING (GLOW) ---
+        isMatch(target) {
+            if (!this.myAllianceName) return false;
+            const me = this.processedAlliances.find(a => a.name === this.myAllianceName);
+            if (!me || target.faction === me.faction || target.faction === 'Unassigned') return false;
+            
+            // Logic: Compare Group IDs from getGroupedFaction
+            const myGroups = this.getGroupedFaction(me.faction);
+            const targetGroups = this.getGroupedFaction(target.faction);
+            
+            const myGroupId = myGroups.find(g => g.alliances.some(a => a.id === me.id))?.id;
+            const targetGroupId = targetGroups.find(g => g.alliances.some(a => a.id === target.id))?.id;
+            
+            return myGroupId && targetGroupId && myGroupId === targetGroupId;
+        },
+
+        // --- REFRESH MATH ---
         refreshStashMath() {
             const now = new Date();
             const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
@@ -84,17 +111,30 @@ window.warRoom = function() {
                 let rate = Number(a.city_rate) > 0 ? Number(a.city_rate) : Number(a.observed_rate || 0);
                 const scoutTime = a.last_scout_time ? new Date(a.last_scout_time) : cetNow;
                 const hoursSinceScout = Math.max(0, (cetNow - scoutTime) / 3600000);
-                const hoursUntilWar = Math.max(0, (warTime - cetNow) / 3600000);
-                
                 const currentStash = Number(a.last_copper || 0) + (rate * hoursSinceScout);
+                
                 return { 
                     ...a, 
                     stash: currentStash, 
-                    warStash: currentStash + (rate * hoursUntilWar),
+                    warStash: currentStash + (rate * (Math.max(0, (warTime - cetNow) / 3600000))),
                     groupStash: currentStash + (rate * (Math.max(0, (nextGroupTime - cetNow) / 3600000))),
+                    rankingStash: currentStash + (rate * (Math.max(0, (this.getRankingAnchorTime() - cetNow) / 3600000))), // Used for faction sorting
                     rate: rate 
                 };
             });
+        },
+
+        getRankingAnchorTime() {
+            const now = new Date();
+            const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
+            let anchors = [];
+            for(let i=0; i<10; i++) {
+                let d = new Date(cet); d.setDate(d.getDate() - i);
+                let day = d.getDay();
+                if (day === 1 || day === 4) anchors.push(new Date(new Date(d).setHours(3,0,0,0))); 
+                if (day === 3 || day === 6) anchors.push(new Date(new Date(d).setHours(18,0,0,0)));
+            }
+            return anchors.filter(a => a <= cet).sort((a,b) => b - a)[0] || this.seasonStart;
         },
 
         getGroupingStartTime(baseTime) {
@@ -117,7 +157,6 @@ window.warRoom = function() {
             }
         },
 
-        // --- UI HELPERS ---
         updateClockOnly() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
@@ -125,21 +164,32 @@ window.warRoom = function() {
             const diffDays = Math.floor((cet - this.seasonStart) / 864e5);
             this.week = Math.max(1, Math.floor(diffDays / 7) + 1);
             this.currentRoundText = `WEEK ${this.week}`;
-            this.currentPhase = "STRIKE READY";
+            this.currentPhase = "STRIKE_CMD";
             const dff = this.getNextWarTime() - cet;
-            this.phaseCountdown = `${Math.floor(dff/36e5)}h ${Math.floor((dff%36e5)/6e4)}m ${Math.floor((dff%6e4)/1000)}s`;
+            this.phaseCountdown = `${Math.floor(dff/36e5)}h ${Math.floor((dff%36e5)/6e4)}m`;
         },
 
+        // --- HELPERS ---
+        isFavorite(a) { return this.favorites.some(f => f.id === a.id); },
+        toggleFavorite(a) {
+            if (this.isFavorite(a)) { this.favorites = this.favorites.filter(f => f.id !== a.id); }
+            else { this.favorites.push(a); }
+            localStorage.setItem('war_favorites', JSON.stringify(this.favorites));
+        },
         async openComparison(targetAlliance) {
-            const me = this.alliances.find(a => a.name === this.myAllianceName);
-            if (!me) return alert("Select your Alliance in sidebar first.");
-            const { data } = await this.client.from('players').select('*').in('alliance_id', [me.id, targetAlliance.id]).order('thp', { ascending: false });
+            const me = this.processedAlliances.find(a => a.name === this.myAllianceName);
+            const ids = me ? [me.id, targetAlliance.id] : [targetAlliance.id];
+            const { data } = await this.client.from('players').select('*').in('alliance_id', ids).order('thp', { ascending: false });
             this.comparisonTarget = {
-                me: { name: me.name, tag: me.tag, roster: data.filter(p => p.alliance_id === me.id) },
+                me: me ? { name: me.name, tag: me.tag, roster: data.filter(p => p.alliance_id === me.id) } : null,
                 them: { name: targetAlliance.name, tag: targetAlliance.tag, roster: data.filter(p => p.alliance_id === targetAlliance.id) }
             };
         },
-
+        getFilteredRefList() {
+            if (!this.refSearch) return [];
+            return [...this.alliances].filter(a => (a.tag||'').toLowerCase().includes(this.refSearch.toLowerCase()) || (a.name||'').toLowerCase().includes(this.refSearch.toLowerCase())).slice(0, 5);
+        },
+        setReferenceAlliance(name) { this.myAllianceName = name; localStorage.setItem('war_ref_alliance', name); this.refSearch = ''; },
         formatNum(v) { return Math.floor(v || 0).toLocaleString(); },
         formatPower(v) { return (v/1e9).toFixed(1) + 'B'; },
         matchesSearch(a) { 
@@ -154,13 +204,12 @@ window.warRoom = function() {
             this.isImporting = true;
             try {
                 const cleanData = JSON.parse(this.importData); 
-                let count = 0;
                 for (const item of cleanData) {
                     const alliance = this.alliances.find(a => a.tag.toLowerCase() === item.tag.toLowerCase());
-                    if (alliance) { await this.client.from('history').insert({ alliance_id: alliance.id, copper: item.stash }); count++; }
+                    if (alliance) { await this.client.from('history').insert({ alliance_id: alliance.id, copper: item.stash }); }
                 }
-                alert(`Processed ${count} scouts.`); this.importData = '';
-            } catch (e) { alert("JSON Format Error"); }
+                alert("Intel Merged!"); this.importData = '';
+            } catch (e) { alert("Format Error"); }
             this.isImporting = false; await this.fetchData();
         }
     }
