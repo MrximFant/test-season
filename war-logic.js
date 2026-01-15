@@ -1,15 +1,17 @@
 window.warRoom = function() {
     return {
-        version: '7.0.0',
+        version: '8.1.0',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
         tab: 'warroom', loading: true, searchQuery: '',
         alliances: [], processedAlliances: [], simAlliances: [],
-        openGroups: [], openServers: [], alliancePlayers: {}, // { allianceId: [players] }
-        displayClock: '', currentRoundText: '', phaseCountdown: '',
+        openGroups: [], openServers: [], alliancePlayers: {}, 
+        displayClock: '', phaseCountdown: '',
         week: 1, seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
-        planner: [], simRange: { start: 1, end: 20 },
+        
+        planner: [],
+        simRange: { start: 1, end: 20 },
 
         async init() {
             this.client = supabase.createClient(this.sbUrl, this.sbKey);
@@ -28,29 +30,14 @@ window.warRoom = function() {
         async fetchData() {
             this.loading = true;
             try {
-                const { data, error } = await this.client.from('war_master_view').select('*');
-                if (error) throw error;
+                const { data } = await this.client.from('war_master_view').select('*');
                 this.alliances = data || [];
                 this.refreshStashMath(); 
             } catch (e) { console.error("Sync Error:", e); }
             this.loading = false;
         },
 
-        // --- SERVER INTEL LOGIC ---
-        get uniqueServers() {
-            const servers = [...new Set(this.alliances.map(a => a.server))];
-            return servers.sort((a,b) => parseInt(a) - parseInt(b));
-        },
-        getAlliancesByServer(srv) {
-            return this.processedAlliances.filter(a => a.server === srv).sort((a,b) => b.ace_thp - a.ace_thp);
-        },
-        async toggleAlliancePlayers(aId) {
-            if (this.alliancePlayers[aId]) { delete this.alliancePlayers[aId]; return; }
-            const { data } = await this.client.from('players').select('*').eq('alliance_id', aId).order('thp', {ascending: false});
-            this.alliancePlayers[aId] = data;
-        },
-
-        // --- TIME ENGINE (CET) ---
+        // --- TIME & STASH MATH ---
         refreshStashMath() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
@@ -58,12 +45,11 @@ window.warRoom = function() {
             const lastLock = this.getPrevLock(cet);
             const nextLock = this.getNextLock(cet);
             const warEnd = this.getWarEndTime(cet);
-            
-            // Switch to "Future Grouping" mode after war ends (Wed/Sat 18:00)
             const isProjection = cet >= warEnd;
             const activeLock = isProjection ? nextLock : lastLock;
 
-            this.processedAlliances = this.alliances.map(a => {
+            // Step 1: Basic Calculations
+            let rawProcessed = this.alliances.map(a => {
                 let rate = Number(a.city_rate) > 0 ? Number(a.city_rate) : Number(a.observed_rate || 0);
                 const scoutTime = new Date(a.last_scout_time);
                 const hrsLock = (activeLock - scoutTime) / 3600000;
@@ -77,6 +63,16 @@ window.warRoom = function() {
                     rate: rate 
                 };
             });
+
+            // Step 2: Assign Live Faction Ranks (matching in-game sort)
+            const factions = ['Kage no Sato', 'Koubu'];
+            factions.forEach(f => {
+                rawProcessed.filter(a => a.faction === f)
+                    .sort((a, b) => b.stash - a.stash)
+                    .forEach((a, index) => { a.liveRank = index + 1; });
+            });
+
+            this.processedAlliances = rawProcessed;
         },
 
         getPrevLock(n) {
@@ -90,7 +86,7 @@ window.warRoom = function() {
             return t;
         },
         getWarEndTime(n) {
-            let t = new Date(n); t.setHours(18,0,0,0); // Swapping at 18:00 CET
+            let t = new Date(n); t.setHours(18,0,0,0);
             while (t.getDay() !== 3 && t.getDay() !== 6) t.setDate(t.getDate()-1);
             return t;
         },
@@ -98,18 +94,31 @@ window.warRoom = function() {
             const cet = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             this.displayClock = cet.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'});
             this.week = Math.max(1, Math.floor((cet - this.seasonStart) / 604800000) + 1);
-            
             let tWar = new Date(cet); tWar.setHours(15,30,0,0);
             while (tWar <= cet || (tWar.getDay() !== 3 && tWar.getDay() !== 6)) tWar.setDate(tWar.getDate()+1);
             const dff = tWar - cet;
             this.phaseCountdown = `${Math.floor(dff/36e5)}h ${Math.floor((dff%36e5)/6e4)}m`;
         },
 
-        // --- SIMULATION ---
+        // --- PLANNER LOGIC ---
         setupPlanner() {
-            const topKage = this.getGroupedFaction('Kage').flatMap(g => g.alliances).slice(this.simRange.start-1, this.simRange.end);
-            this.planner = topKage.map(a => ({ kageId: a.id, kage: a, targetId: '', buildings: [], isZero: false, estStolen: 0 }));
+            const sortedKage = this.processedAlliances
+                .filter(a => (a.faction||'').toLowerCase().includes('kage'))
+                .sort((a,b) => a.liveRank - b.liveRank);
+
+            const filtered = sortedKage.slice(this.simRange.start - 1, this.simRange.end);
+            this.planner = filtered.map(a => ({
+                kageId: a.id, kage: a, targetId: '', buildings: [], isZero: false, estStolen: 0
+            }));
+            this.savePlan();
         },
+
+        getPossibleTargets() {
+            return this.processedAlliances
+                .filter(a => (a.faction||'').toLowerCase().includes('koubu'))
+                .sort((a,b) => a.liveRank - b.liveRank);
+        },
+
         calculateMatch(idx) {
             const p = this.planner[idx];
             const target = this.processedAlliances.find(a => a.id === p.targetId);
@@ -119,8 +128,11 @@ window.warRoom = function() {
                 p.buildings.forEach(b => pct += (b === 3 ? 0.06 : 0.03));
                 p.estStolen = Math.floor(target.lockStash * pct);
             }
-            localStorage.setItem('kage_war_plan', JSON.stringify(this.planner));
+            this.savePlan();
         },
+
+        savePlan() { localStorage.setItem('kage_war_plan', JSON.stringify(this.planner)); },
+
         runSimulation() {
             let simData = this.processedAlliances.map(a => ({ ...a, simStash: a.lockStash }));
             this.planner.forEach(p => {
@@ -138,15 +150,28 @@ window.warRoom = function() {
         // --- UI HELPERS ---
         getGroupedFaction(f, data = null) {
             const src = data || this.processedAlliances;
+            const sortKey = data ? 'simStash' : 'stash';
             const sorted = src.filter(a => (a.faction||'').toLowerCase().includes(f.toLowerCase()))
-                             .sort((a,b) => (a.simStash || a.lockStash) > (b.simStash || b.lockStash) ? -1 : 1);
+                             .sort((a,b) => b[sortKey] - a[sortKey]);
             const groups = [];
             const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
             for (let i=0; i < sorted.length && i < 30; i+=step) {
-                groups.push({ id: Math.floor(i/step)+1, label: `Group ${Math.floor(i/step)+1}`, alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) });
+                groups.push({ 
+                    id: Math.floor(i/step)+1, 
+                    label: `Group ${Math.floor(i/step)+1}`, 
+                    alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) 
+                });
             }
             return groups;
         },
-        formatNum(v) { return Math.floor(v || 0).toLocaleString(); }
+
+        async toggleAlliancePlayers(aId) {
+            if (this.alliancePlayers[aId]) { delete this.alliancePlayers[aId]; return; }
+            const { data } = await this.client.from('players').select('*').eq('alliance_id', aId).order('thp', {ascending: false});
+            this.alliancePlayers[aId] = data;
+        },
+
+        formatNum(v) { return Math.floor(v || 0).toLocaleString(); },
+        formatPower(v) { return (v/1e9).toFixed(1) + 'B'; }
     }
 }
