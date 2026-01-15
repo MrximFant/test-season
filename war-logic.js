@@ -1,12 +1,13 @@
 window.warRoom = function() {
     return {
-        version: '9.0.0',
+        version: '9.1.0',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
         tab: 'warroom', loading: true, searchQuery: '',
         alliances: [], processedAlliances: [], simAlliances: [],
         openGroups: [], alliancePlayers: {}, 
+        showGlobalMobile: false, // NEW: Toggle for global ranking on mobile
         displayClock: '', phaseCountdown: '',
         week: 1, seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
         
@@ -60,10 +61,8 @@ window.warRoom = function() {
                 };
             });
 
-            // Global Rank (1-200) based on Live Stash
             raw.sort((a,b) => b.stash - a.stash).forEach((a, i) => a.globalRank = i + 1);
 
-            // Faction Rank based on Live Stash
             ['Kage no Sato', 'Koubu'].forEach(f => {
                 raw.filter(a => a.faction === f)
                     .sort((a, b) => b.stash - a.stash)
@@ -83,7 +82,6 @@ window.warRoom = function() {
                     if (themIdx > -1) simData[themIdx].simStash -= p.estStolen;
                 }
             });
-            // Assign Global Sim Ranks
             this.simAlliances = simData.sort((a,b) => b.simStash - a.simStash);
             this.simAlliances.forEach((a, i) => a.globalSimRank = i + 1);
             this.tab = 'results';
