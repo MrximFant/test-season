@@ -40,7 +40,7 @@
         <div x-show="tab === 'warroom'" class="space-y-6">
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 
-                <!-- GLOBAL SIDEBAR (Minimized on mobile) -->
+                <!-- GLOBAL SIDEBAR -->
                 <div class="lg:col-span-3 space-y-4">
                     <div @click="showGlobalMobile = !showGlobalMobile" class="flex justify-between items-center px-2 cursor-pointer lg:cursor-default">
                         <h3 class="text-[10px] font-black uppercase text-indigo-400 tracking-widest italic underline underline-offset-4">Global Ranking</h3>
@@ -60,17 +60,17 @@
                     </div>
                 </div>
 
-                <!-- FACTION BRACKETS -->
+                <!-- FACTION INTEL -->
                 <div class="lg:col-span-9 space-y-6">
                     <input type="text" x-model="searchQuery" placeholder="Filter intel by tag..." class="w-full bg-slate-900 border border-slate-800 p-4 rounded-2xl text-sm italic font-bold text-white outline-none">
                     
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <!-- Kage Brackets -->
                         <div class="space-y-4">
-                            <h3 class="text-[10px] font-black uppercase tracking-widest px-2 text-red-500">Kage Brackets</h3>
+                            <h3 class="text-[10px] font-black uppercase tracking-widest px-2 text-red-500">Kage Standings</h3>
                             <template x-for="g in kageGroups" :key="g.id">
                                 <div class="space-y-2">
-                                    <div @click="openGroups.includes(g.id) ? openGroups = openGroups.filter(x=>x!==g.id) : openGroups.push(g.id)" class="flex justify-between p-3 bg-slate-900 rounded-xl border border-slate-800 cursor-pointer">
+                                    <div @click="openGroups.includes(g.id) ? openGroups = openGroups.filter(x=>x!==g.id) : openGroups.push(g.id)" class="flex justify-between p-3 bg-slate-900 rounded-xl border border-slate-800 cursor-pointer hover:bg-slate-800 transition-colors">
                                         <span class="text-[10px] font-black uppercase text-slate-500" x-text="g.label"></span>
                                         <span class="text-slate-600 text-xs" x-text="openGroups.includes(g.id) ? '▲' : '▼'"></span>
                                     </div>
@@ -96,7 +96,7 @@
                                                         <p class="font-bold text-white uppercase truncate"><span x-text="a.ace_name"></span> <span class="text-amber-500 ml-1" x-text="'('+formatNum(a.ace_thp)+')'"></span></p>
                                                     </div>
                                                     <div class="text-right border-l border-slate-800 pl-3 ml-3">
-                                                        <p class="text-[7px] text-slate-500 uppercase font-black italic">Hourly copper rate estimated</p>
+                                                        <p class="text-[7px] text-slate-500 uppercase font-black italic">Hourly rate estimated</p>
                                                         <p class="font-mono font-black text-cyan-400" x-text="'+'+formatNum(a.rate)+'/h'"></p>
                                                     </div>
                                                 </div>
@@ -114,10 +114,10 @@
 
                         <!-- Koubu Brackets -->
                         <div class="space-y-4">
-                            <h3 class="text-[10px] font-black uppercase tracking-widest px-2 text-blue-500">Koubu Brackets</h3>
+                            <h3 class="text-[10px] font-black uppercase tracking-widest px-2 text-blue-500">Koubu Standings</h3>
                             <template x-for="g in koubuGroups" :key="g.id">
                                 <div class="space-y-2">
-                                    <div @click="openGroups.includes(g.id) ? openGroups = openGroups.filter(x=>x!==g.id) : openGroups.push(g.id)" class="flex justify-between p-3 bg-slate-900 rounded-xl border border-slate-800 cursor-pointer">
+                                    <div @click="openGroups.includes(g.id) ? openGroups = openGroups.filter(x=>x!==g.id) : openGroups.push(g.id)" class="flex justify-between p-3 bg-slate-900 rounded-xl border border-slate-800 cursor-pointer hover:bg-slate-800 transition-colors">
                                         <span class="text-[10px] font-black uppercase text-slate-500" x-text="g.label"></span>
                                         <span class="text-slate-600 text-xs" x-text="openGroups.includes(g.id) ? '▲' : '▼'"></span>
                                     </div>
@@ -143,7 +143,7 @@
                                                         <p class="font-bold text-white uppercase truncate"><span x-text="a.ace_name"></span> <span class="text-amber-500 ml-1" x-text="'('+formatNum(a.ace_thp)+')'"></span></p>
                                                     </div>
                                                     <div class="text-right border-l border-slate-800 pl-3 ml-3">
-                                                        <p class="text-[7px] text-slate-500 uppercase font-black italic">Hourly copper rate estimated</p>
+                                                        <p class="text-[7px] text-slate-500 uppercase font-black italic">Hourly rate estimated</p>
                                                         <p class="font-mono font-black text-cyan-400" x-text="'+'+formatNum(a.rate)+'/h'"></p>
                                                     </div>
                                                 </div>
@@ -169,7 +169,6 @@
                 <div class="flex-1 space-y-3">
                     <h2 class="text-xl font-black text-white uppercase italic tracking-tighter underline decoration-red-600 underline-offset-4">War Command</h2>
                     <div class="bg-black/40 p-4 rounded-xl border border-slate-800">
-                        <!-- EDIT YOUR TEXT HERE -->
                         <p class="text-xs text-slate-400 leading-relaxed italic">
                             Tactical Simulation: Map our top-tier strikes against the Koubu faction. 
                             Values are calculated based on the 03:00 Locked Stash. Press simulate to calculate 
@@ -199,7 +198,7 @@
                         <span class="text-xs font-bold text-white truncate" x-text="match.kage.name"></span>
                     </div>
                     <div class="lg:col-span-4">
-                        <select x-model="match.targetId" @change="calculateMatch(idx)" class="w-full bg-slate-950 border border-slate-800 p-2 rounded text-[10px] text-white">
+                        <select x-model="match.targetId" @change="calculateMatch(idx)" class="w-full bg-slate-950 border border-slate-800 p-2 rounded text-[10px] text-white outline-none">
                             <option value="">Select Koubu Target...</option>
                             <template x-for="t in stableTargets" :key="t.id">
                                 <option :value="t.id" x-text="'['+t.tag+'] '+t.name + ' (#'+t.liveRank+')'"></option>
@@ -241,7 +240,7 @@
                 <div class="lg:col-span-9 grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <template x-for="f in ['Kage', 'Koubu']" :key="'simF'+f">
                         <div class="space-y-4">
-                            <h3 class="text-xs font-black uppercase text-slate-500 px-2 tracking-widest" x-text="f + ' Projected Groups'"></h3>
+                            <h3 class="text-xs font-black uppercase text-slate-500 px-2 tracking-widest" x-text="f + ' Projected Brackets'"></h3>
                             <template x-for="g in (f === 'Kage' ? kageSimGroups : koubuSimGroups)" :key="'simGroup'+f+g.id">
                                 <div class="space-y-2">
                                     <div class="p-2 bg-slate-900/40 rounded-lg text-[10px] font-black text-slate-600 uppercase" x-text="g.label"></div>
@@ -263,9 +262,8 @@
             </div>
         </div>
 
-    </main>
-
-    <!-- NAVIGATION -->
+    </nav>
+    <!-- NAVIGATION (Fixed Bottom) -->
     <nav class="nav-fixed flex justify-around p-4">
         <button @click="tab='warroom'" :class="tab==='warroom'?'text-cyan-400':'text-slate-600'" class="flex flex-col items-center gap-1 transition-all">
             <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
