@@ -121,4 +121,35 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <template x-for="f in ['Kage', 'Koubu']">
                     <div class="space-y-4">
-                        <h3 class="text-xs font-black upperca
+                        <h3 class="text-xs font-black uppercase text-slate-500 tracking-widest px-2" x-text="f + ' Projected Ranking'"></h3>
+                        <template x-for="g in getGroupedFaction(f, simAlliances)">
+                            <div class="space-y-2">
+                                <div class="p-2 bg-slate-900/40 rounded-lg text-[10px] font-black text-slate-600 uppercase" x-text="g.label"></div>
+                                <template x-for="a in g.alliances">
+                                    <div class="glass p-3 rounded-xl flex justify-between items-center">
+                                        <div class="flex items-center gap-3"><span class="text-[10px] font-black text-white" x-text="'#'+a.factionRank"></span><span class="tag-badge" x-text="a.tag"></span><span class="text-xs font-bold text-slate-300" x-text="a.name"></span></div>
+                                        <p class="text-xs font-mono font-black text-white" x-text="formatNum(a.simStash)"></p>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- NAVIGATION -->
+    <nav class="nav-fixed flex justify-around p-4">
+        <button @click="tab='warroom'" :class="tab==='warroom'?'text-cyan-400':'text-slate-600'" class="flex flex-col items-center gap-1">
+            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+            <span class="text-[8px] font-black uppercase">Intel Hub</span>
+        </button>
+        <button @click="tab='sim'" :class="tab==='sim'?'text-red-500':'text-slate-600'" class="flex flex-col items-center gap-1">
+            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M21 3L3 10.53v.98l7.51 3.22L13.74 22h.98L22 3.5 21 3z"/></svg>
+            <span class="text-[8px] font-black uppercase">War Table</span>
+        </button>
+    </nav>
+</body>
+</html>
