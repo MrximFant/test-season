@@ -187,12 +187,15 @@
         <div x-show="tab === 'sim'" class="space-y-4" x-cloak>
             <div class="glass p-6 rounded-2xl flex flex-col lg:flex-row gap-6">
                 <div class="flex-1 space-y-3">
-                    <h2 class="text-xl font-black text-white uppercase italic tracking-tighter underline decoration-red-600 underline-offset-4">War Command</h2>
+                    <h2 class="text-xl font-black text-white uppercase italic tracking-tighter underline decoration-red-600 underline-offset-4">Prediction Planner</h2>
                     <div class="bg-black/40 p-4 rounded-xl border border-slate-800">
                         <p class="text-xs text-slate-400 leading-relaxed italic">
-                            Tactical Simulation: Map our top-tier strikes against the Koubu faction. 
-                            Values are calculated based on the 03:00 Locked Stash. Press simulate to calculate 
-                            the impact on next round's Rank Groups and Global Standing.
+                            This is a simulator to predict standings before next grouping phase.
+                            Using the estimated total copper and hourly rate it sets the predicted rankings for next time the grouping phase starts.
+                            For now this will only work on attack phase, when Kage plunders.
+                            You can select a range of alliances you want to predict. E.g. 1-10 if you want to make sure you get those just about to swap groupings.
+                            Then you pick their matchup and click your prediction for how much copper you expect them to plunder.
+                            Press simulate and you will get a global list and the new groupings.
                         </p>
                     </div>
                 </div>
