@@ -2,31 +2,32 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>S4WARS | KAGE COMMAND</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+    <title>S4WARS | COMMAND</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="war-logic.js"></script>
     <style>
         [x-cloak] { display: none !important; }
-        body { background: #020617; color: #f8fafc; font-family: 'Inter', sans-serif; min-height: 100dvh; }
-        .glass { background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(51, 65, 85, 0.5); border-radius: 1rem; }
-        .btn-strike { background: #1e293b; border: 1px solid #334155; transition: all 0.2s; color: #94a3b8; }
-        .btn-strike.active { background: #0891b2; border-color: #22d3ee; color: white; }
-        .nav-fixed { position: fixed; bottom: 0; left: 0; right: 0; width: 100%; background: #0f172a; border-top: 1px solid #334155; padding-bottom: env(safe-area-inset-bottom); z-index: 100; }
-        .tag { background: rgba(34, 211, 238, 0.1); color: #22d3ee; border: 1px solid rgba(34, 211, 238, 0.2); padding: 1px 4px; border-radius: 4px; font-size: 10px; font-weight: 800; }
+        body { background: #020617; color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .glass { background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(51, 65, 85, 0.5); }
+        .kage-row { border-left: 4px solid #ef4444; background: linear-gradient(90deg, rgba(239, 68, 68, 0.05) 0%, transparent 100%); }
+        .koubu-row { border-left: 4px solid #3b82f6; background: linear-gradient(90deg, rgba(59, 130, 246, 0.05) 0%, transparent 100%); }
+        .nav-fixed { position: fixed; bottom: 0; left: 0; right: 0; background: #0f172a; border-top: 1px solid #334155; padding-bottom: env(safe-area-inset-bottom); z-index: 100; }
+        .tag-badge { background: rgba(34, 211, 238, 0.1); color: #22d3ee; padding: 2px 4px; border-radius: 4px; font-size: 10px; font-weight: 800; border: 1px solid rgba(34, 211, 238, 0.3); }
+        input[type="number"]::-webkit-inner-spin-button { display: none; }
     </style>
 </head>
-<body x-data="warRoom()" x-init="init()" class="pb-24 lg:pb-12">
+<body x-data="warRoom()" x-init="init()" class="pb-24">
 
     <!-- HEADER -->
-    <header class="sticky top-0 z-[60] glass mx-2 mt-2 p-3 flex justify-between items-center backdrop-blur-xl lg:max-w-4xl lg:mx-auto">
+    <header class="sticky top-0 z-[60] glass mx-2 mt-2 p-3 flex justify-between items-center backdrop-blur-xl lg:max-w-6xl lg:mx-auto rounded-2xl">
         <div class="flex items-center gap-2">
-            <div class="h-8 w-1 bg-red-500 rounded-full"></div>
+            <div class="h-8 w-1 bg-red-600 rounded-full"></div>
             <div>
-                <h1 class="text-lg font-black tracking-tighter text-white uppercase italic leading-none">Kage_Cmd</h1>
-                <p class="text-[9px] font-black text-slate-500 uppercase mt-1" x-text="currentRoundText + ' | ' + displayClock"></p>
+                <h1 class="text-lg font-black tracking-tighter text-white uppercase italic leading-none">Kage_Command</h1>
+                <p class="text-[9px] font-bold text-slate-500 uppercase mt-1" x-text="currentRoundText + ' | ' + displayClock"></p>
             </div>
         </div>
         <div class="text-right">
@@ -35,62 +36,42 @@
         </div>
     </header>
 
-    <main class="p-3 lg:max-w-4xl lg:mx-auto">
-        
-        <!-- SEARCH -->
-        <div x-show="tab === 'warroom'" class="mb-6">
-            <input type="text" x-model="searchQuery" placeholder="Filter Alliances..." class="w-full bg-slate-900 border border-slate-800 p-4 rounded-2xl text-sm italic font-bold text-white outline-none">
-        </div>
+    <main class="p-3 lg:max-w-6xl lg:mx-auto">
 
         <!-- HUB TAB -->
-        <div x-show="tab === 'warroom'" class="space-y-6">
+        <div x-show="tab === 'warroom'" class="space-y-8">
             <template x-for="faction in ['Kage', 'Koubu']">
                 <div class="space-y-4">
-                    <div class="p-2 rounded-lg font-black uppercase text-[10px] tracking-widest italic border-l-4" 
-                         :class="faction === 'Kage' ? 'border-red-500 bg-red-500/10 text-red-500' : 'border-blue-500 bg-blue-500/10 text-blue-500'" 
-                         x-text="faction + ' Intelligence'"></div>
+                    <h3 class="text-[10px] font-black uppercase tracking-widest px-2" :class="faction === 'Kage' ? 'text-red-500' : 'text-blue-500'" x-text="faction + ' Faction Standings'"></h3>
                     
                     <template x-for="group in getGroupedFaction(faction)">
                         <div class="space-y-2">
-                            <div @click="toggleGroup(faction, group.id)" class="flex justify-between items-center p-3 bg-slate-900/40 rounded-xl border border-slate-800/50 cursor-pointer">
+                            <div @click="toggleGroup(faction, group.id)" class="flex justify-between items-center p-3 bg-slate-900 rounded-xl border border-slate-800 cursor-pointer">
                                 <span class="text-[10px] font-black uppercase text-slate-500" x-text="group.label"></span>
                                 <span class="text-slate-600 text-xs" x-text="openGroups.includes(faction+'-'+group.id) ? '▲' : '▼'"></span>
                             </div>
 
-                            <div x-show="openGroups.includes(faction+'-'+group.id)" class="grid grid-cols-1 gap-3">
+                            <div x-show="openGroups.includes(faction+'-'+group.id)" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                                 <template x-for="a in group.alliances">
-                                    <div x-show="matchesSearch(a)" class="glass p-4 relative flex flex-col gap-3">
+                                    <div class="glass p-4 rounded-2xl flex flex-col gap-3 relative overflow-hidden" :class="faction === 'Kage' ? 'kage-row' : 'koubu-row'">
                                         <div class="flex justify-between items-start">
-                                            <div class="flex-1">
+                                            <div class="flex-1 min-w-0">
                                                 <div class="flex items-center gap-2 mb-1">
-                                                    <span class="tag" x-text="a.tag"></span>
-                                                    <h3 class="text-xs font-black text-white uppercase truncate" x-text="a.name"></h3>
+                                                    <span class="tag-badge" x-text="a.tag"></span>
+                                                    <h4 class="text-xs font-black text-white uppercase truncate" x-text="a.name"></h4>
                                                 </div>
                                                 <div class="text-[8px] font-black uppercase text-slate-500 italic">
-                                                    S<span x-text="a.server"></span> | <span class="text-cyan-600" x-text="formatPower(a.power)"></span>
+                                                    S<span x-text="a.server"></span> | <span class="text-cyan-600" x-text="formatPower(a.power)"></span> | <span class="text-white">Rank #<span x-text="a.factionRank"></span></span>
                                                 </div>
                                             </div>
                                             <div class="text-right">
-                                                <p class="text-[7px] text-slate-500 uppercase font-black">Live Stash</p>
-                                                <p class="text-xs font-mono font-black text-white" x-text="formatNum(a.stash)"></p>
+                                                <p class="text-[7px] text-slate-500 uppercase font-black">Group Stash</p>
+                                                <p class="text-xs font-mono font-black text-amber-500" x-text="formatNum(a.groupStash)"></p>
                                             </div>
                                         </div>
-
-                                        <!-- Ace & Strike -->
-                                        <div class="bg-black/30 p-2 rounded-lg border border-slate-800 flex justify-between items-center">
-                                            <div class="text-[9px] font-bold text-slate-400" x-text="a.ace_name || 'No Data'"></div>
-                                            <div class="text-[9px] font-mono font-black text-amber-500" x-text="formatNum(a.ace_thp)"></div>
-                                        </div>
-
-                                        <div class="flex justify-between items-center">
-                                            <div class="flex gap-1">
-                                                <template x-for="i in [0,1,2,3]">
-                                                    <button @click="toggleBuilding(a.id, i)" :class="strikePlan[a.id]?.includes(i) ? 'active' : ''" class="btn-strike w-8 h-8 rounded text-[8px] font-black" x-text="i < 3 ? 'W'+(i+1) : 'C'"></button>
-                                                </template>
-                                            </div>
-                                            <div class="text-right">
-                                                <p class="text-xs font-mono font-black text-amber-400" x-text="formatNum(getPlannedPlunder(a))"></p>
-                                            </div>
+                                        <div class="flex justify-between items-center bg-black/40 p-2 rounded-lg border border-slate-800">
+                                            <div class="text-[9px] font-bold text-slate-400 truncate max-w-[120px]" x-text="a.ace_name"></div>
+                                            <div class="text-[10px] font-mono font-black text-white" x-text="formatNum(a.ace_thp)"></div>
                                         </div>
                                     </div>
                                 </template>
@@ -101,70 +82,76 @@
             </template>
         </div>
 
-        <!-- SIMULATION TAB -->
+        <!-- SIMULATION TAB (WAR PLANNER) -->
         <div x-show="tab === 'sim'" class="space-y-6">
-            <div class="glass p-4 space-y-4">
-                <h2 class="text-xs font-black text-red-500 uppercase tracking-widest italic">War Simulator</h2>
-                
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="text-[8px] uppercase font-bold text-slate-500">Us (Kage)</label>
-                        <select x-model="sim.us" class="w-full bg-slate-900 border border-slate-800 p-2 rounded text-[10px] text-white outline-none">
-                            <option value="">Select...</option>
-                            <template x-for="a in alliances.filter(x => x.faction === 'Kage')">
-                                <option :value="a" x-text="a.name"></option>
-                            </template>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="text-[8px] uppercase font-bold text-slate-500">Target (Koubu)</label>
-                        <select x-model="sim.them" class="w-full bg-slate-900 border border-slate-800 p-2 rounded text-[10px] text-white outline-none">
-                            <option value="">Select...</option>
-                            <template x-for="a in alliances.filter(x => x.faction === 'Koubu')">
-                                <option :value="a" x-text="a.name"></option>
-                            </template>
-                        </select>
-                    </div>
-                </div>
-                <button @click="loadSimulation()" class="w-full bg-red-600 py-3 rounded-xl font-black uppercase text-xs">Analyze Matchup</button>
+            <div class="glass p-6 rounded-2xl border-red-500/20">
+                <h2 class="text-xl font-black text-white uppercase italic tracking-tighter mb-2 underline decoration-red-500">Battle Planner</h2>
+                <p class="text-[10px] text-slate-500 uppercase font-bold italic">Assign targets to our Top 20 to simulate faction outcome.</p>
             </div>
 
-            <!-- SIM RESULTS -->
-            <div x-show="sim.us && sim.them" class="space-y-2">
-                <div x-show="sim.loading" class="text-center text-xs animate-pulse font-mono text-cyan-500">CALCULATING PROBABILITIES...</div>
-                
-                <template x-for="i in [0,1,2,3,4,5]">
-                    <div class="glass p-3 flex justify-between items-center gap-2">
-                        <!-- Us -->
-                        <div class="flex-1 min-w-0">
-                            <p class="text-[8px] font-bold uppercase truncate" :class="sim.rosterUs[i]?.thp > sim.rosterThem[i]?.thp ? 'text-emerald-500' : 'text-slate-500'" x-text="sim.rosterUs[i]?.name || '---'"></p>
-                            <p class="text-[10px] font-mono font-black" x-text="formatNum(sim.rosterUs[i]?.thp)"></p>
+            <div class="space-y-3">
+                <template x-for="(match, index) in planner">
+                    <div class="glass p-4 rounded-2xl grid grid-cols-1 lg:grid-cols-12 gap-4 items-center border-l-4 border-red-600">
+                        <!-- Our Alliance -->
+                        <div class="lg:col-span-3">
+                            <div class="flex items-center gap-2">
+                                <span class="text-[10px] font-black text-slate-600" x-text="'#' + match.kage.factionRank"></span>
+                                <span class="tag-badge" x-text="match.kage.tag"></span>
+                                <span class="text-xs font-black text-white truncate" x-text="match.kage.name"></span>
+                            </div>
                         </div>
-                        <!-- VS -->
-                        <div class="px-2 text-[8px] font-black text-slate-700 italic">VS</div>
-                        <!-- Them -->
-                        <div class="flex-1 min-w-0 text-right">
-                            <p class="text-[8px] font-bold uppercase truncate" :class="sim.rosterThem[i]?.thp > sim.rosterUs[i]?.thp ? 'text-emerald-500' : 'text-slate-500'" x-text="sim.rosterThem[i]?.name || '---'"></p>
-                            <p class="text-[10px] font-mono font-black" x-text="formatNum(sim.rosterThem[i]?.thp)"></p>
+
+                        <!-- Target Selector -->
+                        <div class="lg:col-span-5">
+                            <select x-model="match.targetId" @change="updateEstStolen(index)" class="w-full bg-slate-900 border border-slate-800 p-2 rounded-lg text-[10px] text-white outline-none focus:border-red-500">
+                                <option value="">Select Target...</option>
+                                <template x-for="t in getPossibleTargets(match.kage)">
+                                    <option :value="t.id" x-text="'[' + t.tag + '] ' + t.name + ' (Rank #' + t.factionRank + ')'"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <!-- Manual Stolen Input -->
+                        <div class="lg:col-span-4 flex items-center gap-3">
+                            <div class="flex-1">
+                                <p class="text-[7px] text-slate-500 uppercase font-black mb-1 italic">Expected Plunder</p>
+                                <input type="number" x-model="match.estStolen" class="w-full bg-black border border-slate-800 p-2 rounded-lg text-xs font-mono font-black text-emerald-400 outline-none">
+                            </div>
+                            <div class="text-right">
+                                <p class="text-[7px] text-slate-500 uppercase font-black mb-1 italic">Max Pot.</p>
+                                <p class="text-[10px] font-mono text-slate-300" x-text="formatNum(match.targetId ? alliances.find(a => a.id === match.targetId).warStash * 0.15 : 0)"></p>
+                            </div>
                         </div>
                     </div>
                 </template>
             </div>
+
+            <!-- SIMULATION FOOTER -->
+            <div class="sticky bottom-24 glass p-6 rounded-2xl border-emerald-500/30 shadow-2xl backdrop-blur-2xl">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h4 class="text-[10px] font-black text-slate-400 uppercase italic">Faction Plunder Goal</h4>
+                        <p class="text-3xl font-mono font-black text-emerald-400" x-text="formatNum(getTotalStolen())"></p>
+                    </div>
+                    <button @click="window.print()" class="bg-slate-800 p-4 rounded-xl text-[10px] font-black uppercase text-white hover:bg-slate-700 transition-all">Export Plan</button>
+                </div>
+            </div>
         </div>
     </main>
 
-    <!-- FIXED MOBILE NAV -->
+    <!-- NAVIGATION -->
     <nav class="nav-fixed">
         <div class="flex justify-around items-center p-4">
-            <button @click="tab = 'warroom'" :class="tab === 'warroom' ? 'text-cyan-400' : 'text-slate-500'" class="flex flex-col items-center">
-                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
-                <span class="text-[8px] font-black uppercase mt-1">Hub</span>
+            <button @click="tab = 'warroom'" :class="tab === 'warroom' ? 'text-cyan-400' : 'text-slate-500'" class="flex flex-col items-center gap-1 transition-all">
+                <div class="p-2" :class="tab === 'warroom' ? 'bg-cyan-500/10 rounded-xl' : ''"><svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></div>
+                <span class="text-[8px] font-black uppercase">Intel Hub</span>
             </button>
-            <button @click="tab = 'sim'" :class="tab === 'sim' ? 'text-red-500' : 'text-slate-500'" class="flex flex-col items-center">
-                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M21 3L3 10.53v.98l7.51 3.22L13.74 22h.98L22 3.5 21 3z"/></svg>
-                <span class="text-[8px] font-black uppercase mt-1">Sim</span>
+            <button @click="tab = 'sim'" :class="tab === 'sim' ? 'text-red-500' : 'text-slate-500'" class="flex flex-col items-center gap-1 transition-all">
+                <div class="p-2" :class="tab === 'sim' ? 'bg-red-500/10 rounded-xl' : ''"><svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M21 3L3 10.53v.98l7.51 3.22L13.74 22h.98L22 3.5 21 3z"/></svg></div>
+                <span class="text-[8px] font-black uppercase">War Planner</span>
             </button>
         </div>
     </nav>
+
 </body>
 </html>
