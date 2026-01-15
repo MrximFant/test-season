@@ -1,13 +1,15 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
-        version: '9.2.0',
+        version: '9.3.0',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
         // --- STATE ---
         tab: 'warroom', loading: true, searchQuery: '',
         alliances: [], processedAlliances: [], simAlliances: [],
+        kageGroups: [], koubuGroups: [], // Pre-calculated for Hub
+        kageSimGroups: [], koubuSimGroups: [], // Pre-calculated for Results
         openGroups: [], alliancePlayers: {}, 
         showGlobalMobile: false,
         displayClock: '', phaseCountdown: '',
@@ -15,15 +17,12 @@ window.warRoom = function() {
         
         planner: [],
         simRange: { start: 1, end: 20 },
-        stableTargets: [], // Used for dropdowns to prevent flickering
+        stableTargets: [],
 
         async init() {
             this.client = supabase.createClient(this.sbUrl, this.sbKey);
             await this.fetchData();
             
-            // Initial stability sync
-            this.updateStableTargets();
-
             const savedPlan = localStorage.getItem('kage_war_plan');
             if (savedPlan) {
                 try {
@@ -36,36 +35,45 @@ window.warRoom = function() {
                 } catch(e) { this.setupPlanner(); }
             } else { this.setupPlanner(); }
 
-            // Throttled UI Loops
-            setInterval(() => { this.updateClockOnly(); }, 1000); // Clock fast
+            setInterval(() => { this.updateClockOnly(); }, 1000);
             setInterval(() => { 
-                // Only refresh math/targets if not actively using the simulation dropdowns
                 if (this.tab !== 'sim') {
-                    this.refreshStashMath(); 
-                    this.updateStableTargets();
+                    this.fetchData(); // Full refresh every 30s
                 }
-            }, 10000); // Math slow (10s) to prevent UI flicker
+            }, 30000); 
         },
 
         async fetchData() {
-            this.loading = true;
             try {
                 const { data, error } = await this.client.from('war_master_view').select('*');
                 if (error) throw error;
                 this.alliances = data || [];
-                this.refreshStashMath(); 
-            } catch (e) { console.error("Database Sync Error:", e); }
-            this.loading = false;
+                this.refreshStashMath();
+                this.updateStableTargets();
+                this.loading = false;
+            } catch (e) { console.error("Fetch Error:", e); }
         },
 
-        updateStableTargets() {
-            this.stableTargets = this.processedAlliances
-                .filter(x => (x.faction||'').includes('Koubu'))
-                .sort((x,y) => x.liveRank - y.liveRank)
-                .map(a => ({ id: a.id, tag: a.tag, name: a.name, liveRank: a.liveRank }));
+        // --- PRE-CALCULATION ENGINE ---
+        // This replaces getGroupedFaction() in the template to stop flickering/vanishing
+        calculateGroups(data, factionQuery) {
+            const sortKey = (this.tab === 'results') ? 'simStash' : 'stash';
+            const sorted = data
+                .filter(a => (a.faction||'').toLowerCase().includes(factionQuery.toLowerCase()))
+                .sort((a,b) => b[sortKey] - a[sortKey]);
+            
+            const groups = [];
+            const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
+            for (let i=0; i < sorted.length && i < 30; i+=step) {
+                groups.push({ 
+                    id: factionQuery + (Math.floor(i/step)+1), 
+                    label: `Group ${Math.floor(i/step)+1}`, 
+                    alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) 
+                });
+            }
+            return groups;
         },
 
-        // --- TIME & STASH ENGINE ---
         refreshStashMath() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
@@ -87,18 +95,39 @@ window.warRoom = function() {
                 };
             });
 
-            // Global Rank (1-200) based on Live Stash
             raw.sort((a,b) => b.stash - a.stash).forEach((a, i) => a.globalRank = i + 1);
 
-            // Faction Rank (1-100) based on Live Stash
             ['Kage no Sato', 'Koubu'].forEach(f => {
                 raw.filter(a => (a.faction||'').includes(f))
                     .sort((a, b) => b.stash - a.stash)
                     .forEach((a, i) => { a.liveRank = i + 1; });
             });
+
             this.processedAlliances = raw;
+            // Pre-calculate Hub Brackets
+            this.kageGroups = this.calculateGroups(this.processedAlliances, 'Kage');
+            this.koubuGroups = this.calculateGroups(this.processedAlliances, 'Koubu');
         },
 
+        runSimulation() {
+            let simData = this.processedAlliances.map(a => ({ ...a, simStash: a.lockStash }));
+            this.planner.forEach(p => {
+                if (p.targetId && !p.isZero) {
+                    const usIdx = simData.findIndex(x => x.id === p.kageId);
+                    const themIdx = simData.findIndex(x => x.id === p.targetId);
+                    if (usIdx > -1) simData[usIdx].simStash += p.estStolen;
+                    if (themIdx > -1) simData[themIdx].simStash -= p.estStolen;
+                }
+            });
+            this.simAlliances = simData.sort((a,b) => b.simStash - a.simStash);
+            this.simAlliances.forEach((a, i) => a.globalSimRank = i + 1);
+            // Pre-calculate Result Brackets
+            this.kageSimGroups = this.calculateGroups(this.simAlliances, 'Kage');
+            this.koubuSimGroups = this.calculateGroups(this.simAlliances, 'Koubu');
+            this.tab = 'results';
+        },
+
+        // --- TIME & DATA HELPERS ---
         getPrevLock(n) {
             let t = new Date(n); t.setHours(3,0,0,0);
             while (t > n || (t.getDay() !== 1 && t.getDay() !== 4)) t.setDate(t.getDate()-1);
@@ -123,16 +152,15 @@ window.warRoom = function() {
             const dff = tWar - cet;
             this.phaseCountdown = `${Math.floor(dff/36e5)}h ${Math.floor((dff%36e5)/6e4)}m`;
         },
-
-        // --- PLANNER & SIMULATION ---
-        setupPlanner() {
-            this.refreshStashMath();
-            const sortedKage = this.processedAlliances
-                .filter(a => (a.faction||'').toLowerCase().includes('kage'))
+        updateStableTargets() {
+            this.stableTargets = this.processedAlliances
+                .filter(x => (x.faction||'').includes('Koubu'))
                 .sort((a,b) => a.liveRank - b.liveRank);
+        },
+        setupPlanner() {
+            const sortedKage = this.processedAlliances.filter(a => (a.faction||'').toLowerCase().includes('kage')).sort((a,b) => a.liveRank - b.liveRank);
             const filtered = sortedKage.slice(this.simRange.start - 1, this.simRange.end);
             this.planner = filtered.map(a => ({ kageId: a.id, kage: a, targetId: '', buildings: [], isZero: false, estStolen: 0 }));
-            this.updateStableTargets();
             this.savePlan();
         },
         toggleBuilding(idx, bIdx) {
@@ -157,32 +185,6 @@ window.warRoom = function() {
             this.savePlan();
         },
         savePlan() { localStorage.setItem('kage_war_plan', JSON.stringify(this.planner)); },
-        runSimulation() {
-            let simData = this.processedAlliances.map(a => ({ ...a, simStash: a.lockStash }));
-            this.planner.forEach(p => {
-                if (p.targetId && !p.isZero) {
-                    const usIdx = simData.findIndex(x => x.id === p.kageId);
-                    const themIdx = simData.findIndex(x => x.id === p.targetId);
-                    if (usIdx > -1) simData[usIdx].simStash += p.estStolen;
-                    if (themIdx > -1) simData[themIdx].simStash -= p.estStolen;
-                }
-            });
-            this.simAlliances = simData.sort((a,b) => b.simStash - a.simStash);
-            this.simAlliances.forEach((a, i) => a.globalSimRank = i + 1);
-            this.tab = 'results';
-        },
-
-        // --- HELPERS ---
-        getGroupedFaction(f, data = null) {
-            const src = data || this.processedAlliances;
-            const sortKey = data ? 'simStash' : 'stash';
-            const sorted = src.filter(a => (a.faction||'').toLowerCase().includes(f.toLowerCase())).sort((a,b) => b[sortKey] - a[sortKey]);
-            const groups = []; const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
-            for (let i=0; i < sorted.length && i < 30; i+=step) {
-                groups.push({ id: Math.floor(i/step)+1, label: `Group ${Math.floor(i/step)+1}`, alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) });
-            }
-            return groups;
-        },
         async toggleAlliancePlayers(aId) {
             if (this.alliancePlayers[aId]) { delete this.alliancePlayers[aId]; return; }
             const { data } = await this.client.from('players').select('*').eq('alliance_id', aId).order('thp', {ascending: false});
