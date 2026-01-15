@@ -1,6 +1,6 @@
 window.warRoom = function() {
     return {
-        version: '8.2.0',
+        version: '9.0.0',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
@@ -15,26 +15,17 @@ window.warRoom = function() {
 
         async init() {
             this.client = supabase.createClient(this.sbUrl, this.sbKey);
-            
-            // 1. Fetch data first
             await this.fetchData();
             
-            // 2. Load Plan from storage OR setup new
             const savedPlan = localStorage.getItem('kage_war_plan');
             if (savedPlan) {
                 try {
-                    const parsed = JSON.parse(savedPlan);
-                    this.planner = parsed.map(p => ({
-                        ...p,
-                        buildings: p.buildings || [], // Ensure array exists
-                        kage: this.processedAlliances.find(a => a.id === p.kageId)
+                    this.planner = JSON.parse(savedPlan).map(p => ({
+                        ...p, kage: this.processedAlliances.find(a => a.id === p.kageId)
                     })).filter(p => p.kage);
                 } catch(e) { this.setupPlanner(); }
-            } else { 
-                this.setupPlanner(); 
-            }
+            } else { this.setupPlanner(); }
 
-            // 3. Start Update Loops
             setInterval(() => { this.updateClockOnly(); this.refreshStashMath(); }, 1000);
         },
 
@@ -48,89 +39,14 @@ window.warRoom = function() {
             this.loading = false;
         },
 
-        // --- PLANNER LOGIC (FIXED INTERACTIVITY) ---
-        setupPlanner() {
-            const sortedKage = this.processedAlliances
-                .filter(a => (a.faction||'').toLowerCase().includes('kage'))
-                .sort((a,b) => a.liveRank - b.liveRank);
-
-            const filtered = sortedKage.slice(this.simRange.start - 1, this.simRange.end);
-            this.planner = filtered.map(a => ({
-                kageId: a.id, 
-                kage: a, 
-                targetId: '', 
-                buildings: [], 
-                isZero: false, 
-                estStolen: 0
-            }));
-            this.savePlan();
-        },
-
-        toggleBuilding(idx, bIdx) {
-            const p = this.planner[idx];
-            p.isZero = false;
-            
-            // Re-assign array to force Alpine reactivity
-            let current = [...p.buildings];
-            const pos = current.indexOf(bIdx);
-            
-            if (pos > -1) current.splice(pos, 1);
-            else current.push(bIdx);
-            
-            p.buildings = current;
-            this.calculateMatch(idx);
-        },
-
-        setZero(idx) {
-            const p = this.planner[idx];
-            p.isZero = !p.isZero;
-            if (p.isZero) p.buildings = [];
-            this.calculateMatch(idx);
-        },
-
-        calculateMatch(idx) {
-            const p = this.planner[idx];
-            const target = this.processedAlliances.find(a => a.id === p.targetId);
-            if (!target || p.isZero) {
-                p.estStolen = 0;
-            } else {
-                // Default to 15% if nothing selected, otherwise sum buildings
-                let pct = p.buildings.length > 0 ? 0 : 0.15;
-                p.buildings.forEach(b => pct += (b === 3 ? 0.06 : 0.03));
-                p.estStolen = Math.floor(target.lockStash * pct);
-            }
-            this.savePlan();
-        },
-
-        savePlan() { 
-            localStorage.setItem('kage_war_plan', JSON.stringify(this.planner)); 
-        },
-
-        runSimulation() {
-            let simData = this.processedAlliances.map(a => ({ ...a, simStash: a.lockStash }));
-            this.planner.forEach(p => {
-                if (p.targetId && !p.isZero) {
-                    const usIdx = simData.findIndex(x => x.id === p.kageId);
-                    const themIdx = simData.findIndex(x => x.id === p.targetId);
-                    if (usIdx > -1) simData[usIdx].simStash += p.estStolen;
-                    if (themIdx > -1) simData[themIdx].simStash -= p.estStolen;
-                }
-            });
-            this.simAlliances = simData.sort((a,b) => b.simStash - a.simStash);
-            this.tab = 'results';
-        },
-
-        // --- TIME & STASH MATH ---
         refreshStashMath() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
             const lastLock = this.getPrevLock(cet);
             const nextLock = this.getNextLock(cet);
             const warEnd = this.getWarEndTime(cet);
-            const isProjection = cet >= warEnd;
-            const activeLock = isProjection ? nextLock : lastLock;
+            const activeLock = cet >= warEnd ? nextLock : lastLock;
 
-            const factions = ['Kage no Sato', 'Koubu'];
             let raw = this.alliances.map(a => {
                 let rate = Number(a.city_rate) > 0 ? Number(a.city_rate) : Number(a.observed_rate || 0);
                 const scoutTime = new Date(a.last_scout_time);
@@ -144,12 +60,33 @@ window.warRoom = function() {
                 };
             });
 
-            factions.forEach(f => {
+            // Global Rank (1-200) based on Live Stash
+            raw.sort((a,b) => b.stash - a.stash).forEach((a, i) => a.globalRank = i + 1);
+
+            // Faction Rank based on Live Stash
+            ['Kage no Sato', 'Koubu'].forEach(f => {
                 raw.filter(a => a.faction === f)
                     .sort((a, b) => b.stash - a.stash)
                     .forEach((a, i) => { a.liveRank = i + 1; });
             });
             this.processedAlliances = raw;
+        },
+
+        // --- SIMULATION ---
+        runSimulation() {
+            let simData = this.processedAlliances.map(a => ({ ...a, simStash: a.lockStash }));
+            this.planner.forEach(p => {
+                if (p.targetId && !p.isZero) {
+                    const usIdx = simData.findIndex(x => x.id === p.kageId);
+                    const themIdx = simData.findIndex(x => x.id === p.targetId);
+                    if (usIdx > -1) simData[usIdx].simStash += p.estStolen;
+                    if (themIdx > -1) simData[themIdx].simStash -= p.estStolen;
+                }
+            });
+            // Assign Global Sim Ranks
+            this.simAlliances = simData.sort((a,b) => b.simStash - a.simStash);
+            this.simAlliances.forEach((a, i) => a.globalSimRank = i + 1);
+            this.tab = 'results';
         },
 
         getPrevLock(n) {
@@ -176,15 +113,39 @@ window.warRoom = function() {
             const dff = tWar - cet;
             this.phaseCountdown = `${Math.floor(dff/36e5)}h ${Math.floor((dff%36e5)/6e4)}m`;
         },
-
-        // --- HELPERS ---
+        setupPlanner() {
+            const sortedKage = this.processedAlliances.filter(a => (a.faction||'').toLowerCase().includes('kage')).sort((a,b) => a.liveRank - b.liveRank);
+            const filtered = sortedKage.slice(this.simRange.start - 1, this.simRange.end);
+            this.planner = filtered.map(a => ({ kageId: a.id, kage: a, targetId: '', buildings: [], isZero: false, estStolen: 0 }));
+            this.savePlan();
+        },
+        toggleBuilding(idx, bIdx) {
+            const p = this.planner[idx]; p.isZero = false;
+            let current = [...p.buildings]; const pos = current.indexOf(bIdx);
+            if (pos > -1) current.splice(pos, 1); else current.push(bIdx);
+            p.buildings = current; this.calculateMatch(idx);
+        },
+        setZero(idx) {
+            const p = this.planner[idx]; p.isZero = !p.isZero;
+            if (p.isZero) p.buildings = []; this.calculateMatch(idx);
+        },
+        calculateMatch(idx) {
+            const p = this.planner[idx];
+            const target = this.processedAlliances.find(a => a.id === p.targetId);
+            if (!target || p.isZero) p.estStolen = 0;
+            else {
+                let pct = p.buildings.length > 0 ? 0 : 0.15;
+                p.buildings.forEach(b => pct += (b === 3 ? 0.06 : 0.03));
+                p.estStolen = Math.floor(target.lockStash * pct);
+            }
+            this.savePlan();
+        },
+        savePlan() { localStorage.setItem('kage_war_plan', JSON.stringify(this.planner)); },
         getGroupedFaction(f, data = null) {
             const src = data || this.processedAlliances;
             const sortKey = data ? 'simStash' : 'stash';
-            const sorted = src.filter(a => (a.faction||'').toLowerCase().includes(f.toLowerCase()))
-                             .sort((a,b) => b[sortKey] - a[sortKey]);
-            const groups = [];
-            const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
+            const sorted = src.filter(a => (a.faction||'').toLowerCase().includes(f.toLowerCase())).sort((a,b) => b[sortKey] - a[sortKey]);
+            const groups = []; const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
             for (let i=0; i < sorted.length && i < 30; i+=step) {
                 groups.push({ id: Math.floor(i/step)+1, label: `Group ${Math.floor(i/step)+1}`, alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) });
             }
@@ -195,6 +156,7 @@ window.warRoom = function() {
             const { data } = await this.client.from('players').select('*').eq('alliance_id', aId).order('thp', {ascending: false});
             this.alliancePlayers[aId] = data;
         },
-        formatNum(v) { return Math.floor(v || 0).toLocaleString(); }
+        formatNum(v) { return Math.floor(v || 0).toLocaleString(); },
+        formatPower(v) { return (v/1e9).toFixed(1) + 'B'; }
     }
 }
