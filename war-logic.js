@@ -1,7 +1,7 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
-        version: '2.8.0',
+        version: '2.9.5',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
@@ -12,6 +12,11 @@ window.warRoom = function() {
         displayClock: '', currentRoundText: '', currentPhase: '', phaseCountdown: '',
         week: 1, seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
         comparisonTarget: null, myAllianceName: '',
+        
+        // --- SIMULATION STATE ---
+        simPlan: {}, // { allianceId: [0,1,2,3] }
+        simResults: [],
+        simActive: false,
 
         async init() {
             this.client = supabase.createClient(this.sbUrl, this.sbKey);
@@ -32,107 +37,71 @@ window.warRoom = function() {
                 const { data } = await this.client.from('war_master_view').select('*');
                 this.alliances = data || [];
                 this.refreshStashMath();
-            } catch (e) { console.error("Sync Error:", e); }
+            } catch (e) { console.error("Sync Error", e); }
             this.loading = false;
         },
 
-        toggleBuilding(aId, index) {
-            if (!this.strikePlan[aId]) this.strikePlan[aId] = [];
-            if (this.strikePlan[aId].includes(index)) {
-                this.strikePlan[aId] = this.strikePlan[aId].filter(i => i !== index);
+        // --- STRIKE / SIM LOGIC ---
+        toggleBuilding(aId, index, isSim = false) {
+            const target = isSim ? this.simPlan : this.strikePlan;
+            if (!target[aId]) target[aId] = [];
+            if (target[aId].includes(index)) {
+                target[aId] = target[aId].filter(i => i !== index);
             } else {
-                this.strikePlan[aId].push(index);
+                target[aId].push(index);
             }
         },
 
-        getPlannedPlunder(a) {
-            const selected = this.strikePlan[a.id] || [];
-            if (selected.length === 0) return a.warStash * 0.15;
+        getPlannedPlunder(a, isSim = false) {
+            const target = isSim ? this.simPlan : this.strikePlan;
+            const selected = target[a.id] || [];
+            if (selected.length === 0 && !isSim) return a.warStash * 0.15;
             let totalPercent = 0;
             selected.forEach(i => { totalPercent += (i === 3 ? 0.06 : 0.03); });
             return a.warStash * totalPercent;
         },
 
-        getGroupedFaction(fName) {
-            if (!fName || !this.processedAlliances.length) return [];
-            const sorted = this.processedAlliances
-                .filter(a => (a.faction || '').toLowerCase().includes(fName.toLowerCase()))
-                .sort((a,b) => b.rankingStash - a.rankingStash);
-
-            const groups = [];
-            const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
-            let i = 0;
-            while (i < 30 && i < sorted.length) {
-                groups.push({ 
-                    id: Math.floor(i/step)+1, 
-                    label: `Rank ${i+1}-${Math.min(i+step, 30)}`, 
-                    alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) 
-                });
-                i += step;
-            }
-            if (sorted.length > 30) { 
-                groups.push({ id: 99, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) }); 
-            }
-            return groups;
-        },
-
-        toggleGroup(f, id) { 
-            const key = `${f}-${id}`; 
-            this.openGroups = this.openGroups.includes(key) ? this.openGroups.filter(k => k !== key) : [...this.openGroups, key]; 
-        },
-
-        isGroupOpen(f, id) { return this.openGroups.includes(`${f}-${id}`); },
-
-        isMatch(target) {
-            if (!this.myAllianceName) return false;
-            const me = this.processedAlliances.find(a => a.name === this.myAllianceName);
-            if (!me || target.faction === me.faction) return false;
-            
-            const myGroups = this.getGroupedFaction(me.faction);
-            const targetGroups = this.getGroupedFaction(target.faction);
-            const myGID = myGroups.find(g => g.alliances.some(a => a.id === me.id))?.id;
-            const taGID = targetGroups.find(g => g.alliances.some(a => a.id === target.id))?.id;
-            
-            return myGID && taGID && myGID === taGID;
-        },
-
-        refreshStashMath() {
+        // --- PROJECTION CALCULATOR ---
+        runProjection() {
+            const nextLock = this.getGroupingStartTime(new Date());
             const now = new Date();
-            const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
-            const warTime = this.getNextWarTime();
-            const rankingAnchor = this.getRankingAnchorTime();
-            const groupStartTime = this.getGroupingStartTime(cetNow);
 
-            this.processedAlliances = this.alliances.map(a => {
-                let rate = Number(a.city_rate) > 0 ? Number(a.city_rate) : Number(a.observed_rate || 0);
-                const scoutTime = a.last_scout_time ? new Date(a.last_scout_time) : cetNow;
-                const hoursSinceScout = Math.max(0, (cetNow - scoutTime) / 3600000);
-                const currentStash = Number(a.last_copper || 0) + (rate * hoursSinceScout);
+            let projection = this.processedAlliances.map(a => {
+                const rate = a.rate;
+                const hoursToLock = Math.max(0, (nextLock - now) / 3600000);
+                
+                // 1. Predicted growth until the lock
+                let growthStash = a.stash + (rate * hoursToLock);
+                
+                // 2. Loot logic: subtract simulated losses based on warStash (war-time value)
+                const lostCopper = this.getPlannedPlunder(a, true);
                 
                 return { 
                     ...a, 
-                    stash: currentStash, 
-                    warStash: currentStash + (rate * (Math.max(0, (warTime - cetNow) / 3600000))),
-                    groupStash: currentStash + (rate * (Math.max(0, (groupStartTime - cetNow) / 3600000))),
-                    rankingStash: currentStash + (rate * (Math.max(0, (rankingAnchor - cetNow) / 3600000))),
-                    rate: rate 
+                    projectedStash: Math.max(0, growthStash - lostCopper),
+                    lostInSim: lostCopper 
                 };
             });
+
+            // Re-Ranking
+            ['Kage', 'Koubu'].forEach(f => {
+                const factionList = projection
+                    .filter(x => x.faction.includes(f))
+                    .sort((a,b) => b.projectedStash - a.projectedStash);
+                
+                factionList.forEach((a, i) => {
+                    a.newRank = i + 1;
+                    a.rankDiff = a.factionRank - a.newRank;
+                });
+            });
+
+            this.simResults = projection;
+            this.simActive = true;
         },
 
-        getRankingAnchorTime() {
-            const now = new Date();
-            const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
-            let anchors = [];
-            for(let i=0; i<10; i++) {
-                let d = new Date(cet); d.setDate(d.getDate() - i);
-                let day = d.getDay();
-                if (day === 1 || day === 4) anchors.push(new Date(new Date(d).setHours(3,0,0,0))); 
-                if (day === 3 || day === 6) anchors.push(new Date(new Date(d).setHours(18,0,0,0)));
-            }
-            return anchors.filter(a => a <= cet).sort((a,b) => b - a)[0] || this.seasonStart;
-        },
+        resetSim() { this.simPlan = {}; this.simActive = false; this.simResults = []; },
 
+        // --- TIME ENGINE ---
         getGroupingStartTime(baseTime) {
             let target = new Date(baseTime);
             const day = target.getDay();
@@ -153,6 +122,29 @@ window.warRoom = function() {
             }
         },
 
+        refreshStashMath() {
+            const now = new Date();
+            const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
+            const warTime = this.getNextWarTime();
+            const nextGroupTime = this.getGroupingStartTime(cetNow);
+
+            this.processedAlliances = this.alliances.map(a => {
+                let rate = Number(a.city_rate) > 0 ? Number(a.city_rate) : Number(a.observed_rate || 0);
+                const scoutTime = a.last_scout_time ? new Date(a.last_scout_time) : cetNow;
+                const hoursSinceScout = (cetNow - scoutTime) / 3600000;
+                const currentStash = Number(a.last_copper || 0) + (rate * hoursSinceScout);
+                
+                return { 
+                    ...a, 
+                    stash: currentStash, 
+                    warStash: currentStash + (rate * (Math.max(0, (warTime - cetNow) / 3600000))),
+                    groupStash: currentStash + (rate * (Math.max(0, (nextGroupTime - cetNow) / 3600000))),
+                    rankingStash: currentStash + (rate * (Math.max(0, (this.getGroupingStartTime(new Date()) - cetNow) / 3600000))),
+                    rate: rate 
+                };
+            });
+        },
+
         updateClockOnly() {
             const now = new Date();
             const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
@@ -163,6 +155,7 @@ window.warRoom = function() {
             this.phaseCountdown = `${Math.floor(dff/36e5)}h ${Math.floor((dff%36e5)/6e4)}m`;
         },
 
+        // --- UI HELPERS ---
         isFavorite(a) { return this.favorites.some(f => f.id === a.id); },
         toggleFavorite(a) {
             if (this.isFavorite(a)) this.favorites = this.favorites.filter(f => f.id !== a.id);
@@ -178,32 +171,40 @@ window.warRoom = function() {
                 them: { name: targetAlliance.name, tag: targetAlliance.tag, roster: data.filter(p => p.alliance_id === targetAlliance.id) }
             };
         },
-        getFilteredRefList() {
-            if (!this.refSearch) return [];
-            return [...this.alliances].filter(a => (a.tag||'').toLowerCase().includes(this.refSearch.toLowerCase()) || (a.name||'').toLowerCase().includes(this.refSearch.toLowerCase())).slice(0, 5);
+        getGroupedFaction(fName) {
+            if (!fName || !this.processedAlliances.length) return [];
+            const sorted = this.processedAlliances
+                .filter(a => (a.faction || '').toLowerCase().includes(fName.toLowerCase()))
+                .sort((a,b) => b.rankingStash - a.rankingStash);
+
+            const groups = [];
+            const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
+            let i = 0;
+            while (i < 30 && i < sorted.length) {
+                groups.push({ id: Math.floor(i/step)+1, label: `Rank ${i+1}-${Math.min(i+step, 30)}`, alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) });
+                i += step;
+            }
+            if (sorted.length > 30) { groups.push({ id: 99, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) }); }
+            return groups;
         },
         setReferenceAlliance(name) { this.myAllianceName = name; localStorage.setItem('war_ref_alliance', name); this.refSearch = ''; },
+        getFilteredRefList() { return this.refSearch ? [...this.alliances].filter(a => a.tag.toLowerCase().includes(this.refSearch.toLowerCase()) || a.name.toLowerCase().includes(this.refSearch.toLowerCase())).slice(0, 5) : []; },
         formatNum(v) { return Math.floor(v || 0).toLocaleString(); },
         formatPower(v) { return (v/1e9).toFixed(1) + 'B'; },
-        matchesSearch(a) { 
-            const q = this.searchQuery.toLowerCase();
-            return !q || a.name.toLowerCase().includes(q) || a.tag.toLowerCase().includes(q); 
+        matchesSearch(a) { const q = this.searchQuery.toLowerCase(); return !q || a.name.toLowerCase().includes(q) || a.tag.toLowerCase().includes(q); },
+        isMatch(target) {
+            if (!this.myAllianceName) return false;
+            const me = this.processedAlliances.find(a => a.name === this.myAllianceName);
+            if (!me || target.faction === me.faction) return false;
+            const myGroups = this.getGroupedFaction(me.faction);
+            const taGroups = this.getGroupedFaction(target.faction);
+            const myGID = myGroups.find(g => g.alliances.some(a => a.id === me.id))?.id;
+            const taGID = taGroups.find(g => g.alliances.some(a => a.id === target.id))?.id;
+            return myGID && taGID && myGID === taGID;
         },
         async login() {
             const { data } = await this.client.from('authorized_managers').select('manager_name').eq('secret_key', this.passInput).single();
             if (data) { this.authenticated = true; localStorage.setItem('war_admin_key', this.passInput); }
-        },
-        async processImport() {
-            this.isImporting = true;
-            try {
-                const cleanData = JSON.parse(this.importData); 
-                for (const item of cleanData) {
-                    const alliance = this.alliances.find(a => a.tag.toLowerCase() === item.tag.toLowerCase());
-                    if (alliance) await this.client.from('history').insert({ alliance_id: alliance.id, copper: item.stash });
-                }
-                alert("Intel Merged!"); this.importData = ''; await this.fetchData();
-            } catch (e) { alert("Format Error"); }
-            this.isImporting = false;
         }
     }
 }
