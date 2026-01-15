@@ -1,7 +1,7 @@
 window.warRoom = function() {
     return {
         // --- CONFIG ---
-        version: '2.7.5',
+        version: '2.8.0',
         sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
         sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
 
@@ -32,11 +32,10 @@ window.warRoom = function() {
                 const { data } = await this.client.from('war_master_view').select('*');
                 this.alliances = data || [];
                 this.refreshStashMath();
-            } catch (e) { console.error("Data Fetch Error:", e); }
+            } catch (e) { console.error("Sync Error:", e); }
             this.loading = false;
         },
 
-        // --- STRIKE PLANNER ---
         toggleBuilding(aId, index) {
             if (!this.strikePlan[aId]) this.strikePlan[aId] = [];
             if (this.strikePlan[aId].includes(index)) {
@@ -45,6 +44,7 @@ window.warRoom = function() {
                 this.strikePlan[aId].push(index);
             }
         },
+
         getPlannedPlunder(a) {
             const selected = this.strikePlan[a.id] || [];
             if (selected.length === 0) return a.warStash * 0.15;
@@ -53,7 +53,6 @@ window.warRoom = function() {
             return a.warStash * totalPercent;
         },
 
-        // --- MATCHMAKING & GROUPS ---
         getGroupedFaction(fName) {
             if (!fName || !this.processedAlliances.length) return [];
             const sorted = this.processedAlliances
@@ -67,12 +66,12 @@ window.warRoom = function() {
                 groups.push({ 
                     id: Math.floor(i/step)+1, 
                     label: `Rank ${i+1}-${Math.min(i+step, 30)}`, 
-                    alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1, groupIdx: Math.floor(i/step)+1 })) 
+                    alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) 
                 });
                 i += step;
             }
             if (sorted.length > 30) { 
-                groups.push({ id: 99, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx, groupIdx: 99 })) }); 
+                groups.push({ id: 99, label: "Rank 31-100", alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx })) }); 
             }
             return groups;
         },
@@ -81,12 +80,13 @@ window.warRoom = function() {
             const key = `${f}-${id}`; 
             this.openGroups = this.openGroups.includes(key) ? this.openGroups.filter(k => k !== key) : [...this.openGroups, key]; 
         },
+
         isGroupOpen(f, id) { return this.openGroups.includes(`${f}-${id}`); },
 
         isMatch(target) {
             if (!this.myAllianceName) return false;
             const me = this.processedAlliances.find(a => a.name === this.myAllianceName);
-            if (!me || target.faction === me.faction || target.faction === 'Unassigned') return false;
+            if (!me || target.faction === me.faction) return false;
             
             const myGroups = this.getGroupedFaction(me.faction);
             const targetGroups = this.getGroupedFaction(target.faction);
@@ -96,7 +96,6 @@ window.warRoom = function() {
             return myGID && taGID && myGID === taGID;
         },
 
-        // --- TIME & STASH MATH ---
         refreshStashMath() {
             const now = new Date();
             const cetNow = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
@@ -108,7 +107,6 @@ window.warRoom = function() {
                 let rate = Number(a.city_rate) > 0 ? Number(a.city_rate) : Number(a.observed_rate || 0);
                 const scoutTime = a.last_scout_time ? new Date(a.last_scout_time) : cetNow;
                 const hoursSinceScout = Math.max(0, (cetNow - scoutTime) / 3600000);
-                
                 const currentStash = Number(a.last_copper || 0) + (rate * hoursSinceScout);
                 
                 return { 
@@ -162,10 +160,9 @@ window.warRoom = function() {
             const diffDays = Math.floor((cet - this.seasonStart) / 864e5);
             this.week = Math.max(1, Math.floor(diffDays / 7) + 1);
             const dff = this.getNextWarTime() - cet;
-            this.phaseCountdown = `${Math.floor(dff/36e5)}h ${Math.floor((dff%36e5)/6e4)}m ${Math.floor((dff%6e4)/1000)}s`;
+            this.phaseCountdown = `${Math.floor(dff/36e5)}h ${Math.floor((dff%36e5)/6e4)}m`;
         },
 
-        // --- UI HELPERS ---
         isFavorite(a) { return this.favorites.some(f => f.id === a.id); },
         toggleFavorite(a) {
             if (this.isFavorite(a)) this.favorites = this.favorites.filter(f => f.id !== a.id);
