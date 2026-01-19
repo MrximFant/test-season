@@ -1,0 +1,220 @@
+window.warRoom = function() {
+    return {
+        // --- CONFIG ---
+        version: '9.3.1',
+        sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
+        sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
+
+        // --- STATE ---
+        tab: 'warroom', loading: true, searchQuery: '',
+        alliances: [], processedAlliances: [], simAlliances: [],
+        kageGroups: [], koubuGroups: [], 
+        kageSimGroups: [], koubuSimGroups: [],
+        openGroups: [], alliancePlayers: {}, 
+        showGlobalMobile: false,
+        displayClock: '', phaseCountdown: '',
+        week: 1, seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
+        planner: [], simRange: { start: 1, end: 20 },
+        stableTargets: [],
+
+        async init() {
+            this.client = supabase.createClient(this.sbUrl, this.sbKey);
+            
+            // 1. Determine Week immediately before any data processing
+            this.updateClockOnly(); 
+
+            // 2. Fetch Data
+            await this.fetchData();
+            
+            // 3. Setup Planner
+            const savedPlan = localStorage.getItem('kage_war_plan');
+            if (savedPlan) {
+                try {
+                    const parsed = JSON.parse(savedPlan);
+                    this.planner = parsed.map(p => ({
+                        ...p,
+                        buildings: p.buildings || [],
+                        kage: this.processedAlliances.find(a => a.id === p.kageId)
+                    })).filter(p => p.kage);
+                } catch(e) { this.setupPlanner(); }
+            } else { this.setupPlanner(); }
+
+            // 4. Start Intervals
+            setInterval(() => { this.updateClockOnly(); }, 1000);
+            setInterval(() => { 
+                if (this.tab !== 'sim' && this.tab !== 'results') {
+                    this.fetchData(); 
+                }
+            }, 30000); 
+        },
+
+        async fetchData() {
+            try {
+                const { data, error } = await this.client.from('war_master_view').select('*');
+                if (error) throw error;
+                this.alliances = data || [];
+                
+                // Force calculations in strict order
+                this.refreshStashMath();
+                this.updateStableTargets();
+                this.loading = false;
+            } catch (e) { console.error("Fetch Error:", e); }
+        },
+
+        // --- PRE-CALCULATION ENGINE ---
+        calculateGroups(data, factionQuery) {
+            // Determine Step based on calculated week
+            // Week 1: 10, Week 2: 6, Week 3+: 3
+            const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
+            
+            const sortKey = (this.tab === 'results') ? 'simStash' : 'stash';
+            const sorted = data
+                .filter(a => (a.faction||'').toLowerCase().includes(factionQuery.toLowerCase()))
+                .sort((a,b) => b[sortKey] - a[sortKey]);
+            
+            const groups = [];
+            // Brackets 1-30
+            for (let i=0; i < sorted.length && i < 30; i+=step) {
+                groups.push({ 
+                    id: factionQuery + (Math.floor(i/step)+1), 
+                    label: `Rank ${i+1}-${Math.min(i+step, 30)}`, 
+                    alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) 
+                });
+            }
+            // Bracket 31-100
+            if (sorted.length > 30) {
+                groups.push({
+                    id: factionQuery + '99',
+                    label: 'Rank 31-100',
+                    alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx }))
+                });
+            }
+            return groups;
+        },
+
+        refreshStashMath() {
+            const now = new Date();
+            const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
+            const lastLock = this.getPrevLock(cet);
+            const nextLock = this.getNextLock(cet);
+            const warEnd = this.getWarEndTime(cet);
+            const activeLock = cet >= warEnd ? nextLock : lastLock;
+
+            let raw = this.alliances.map(a => {
+                let rate = Number(a.city_rate) > 0 ? Number(a.city_rate) : Number(a.observed_rate || 0);
+                const scoutTime = new Date(a.last_scout_time);
+                const hrsLock = (activeLock - scoutTime) / 3600000;
+                const hrsLive = (cet - scoutTime) / 3600000;
+                return { 
+                    ...a, 
+                    stash: Number(a.last_copper || 0) + (rate * hrsLive), 
+                    lockStash: Number(a.last_copper || 0) + (rate * hrsLock),
+                    rate: rate 
+                };
+            });
+
+            // Global Rank
+            raw.sort((a,b) => b.stash - a.stash).forEach((a, i) => a.globalRank = i + 1);
+
+            // Faction Rank
+            ['Kage no Sato', 'Koubu'].forEach(f => {
+                raw.filter(a => (a.faction||'').includes(f))
+                    .sort((a, b) => b.stash - a.stash)
+                    .forEach((a, i) => { a.liveRank = i + 1; });
+            });
+
+            this.processedAlliances = raw;
+            this.kageGroups = this.calculateGroups(this.processedAlliances, 'Kage');
+            this.koubuGroups = this.calculateGroups(this.processedAlliances, 'Koubu');
+        },
+
+        runSimulation() {
+            let simData = this.processedAlliances.map(a => ({ ...a, simStash: a.lockStash }));
+            this.planner.forEach(p => {
+                if (p.targetId && !p.isZero) {
+                    const usIdx = simData.findIndex(x => x.id === p.kageId);
+                    const themIdx = simData.findIndex(x => x.id === p.targetId);
+                    if (usIdx > -1) simData[usIdx].simStash += p.estStolen;
+                    if (themIdx > -1) simData[themIdx].simStash -= p.estStolen;
+                }
+            });
+            this.simAlliances = simData.sort((a,b) => b.simStash - a.simStash);
+            this.simAlliances.forEach((a, i) => a.globalSimRank = i + 1);
+            
+            this.kageSimGroups = this.calculateGroups(this.simAlliances, 'Kage');
+            this.koubuSimGroups = this.calculateGroups(this.simAlliances, 'Koubu');
+            this.tab = 'results';
+        },
+
+        // --- TIME CALCULATORS ---
+        getPrevLock(n) {
+            let t = new Date(n); t.setHours(3,0,0,0);
+            while (t > n || (t.getDay() !== 1 && t.getDay() !== 4)) t.setDate(t.getDate()-1);
+            return t;
+        },
+        getNextLock(n) {
+            let t = new Date(n); t.setHours(3,0,0,0);
+            while (t <= n || (t.getDay() !== 1 && t.getDay() !== 4)) t.setDate(t.getDate()+1);
+            return t;
+        },
+        getWarEndTime(n) {
+            let t = new Date(n); t.setHours(18,0,0,0);
+            while (t.getDay() !== 3 && t.getDay() !== 6) t.setDate(t.getDate()-1);
+            return t;
+        },
+        updateClockOnly() {
+            const cet = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Paris"}));
+            this.displayClock = cet.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'});
+            
+            // Strict Week Calculation
+            const diffDays = Math.floor((cet - this.seasonStart) / (1000 * 60 * 60 * 24));
+            this.week = Math.max(1, Math.floor(diffDays / 7) + 1);
+
+            let tWar = new Date(cet); tWar.setHours(15,30,0,0);
+            while (tWar <= cet || (tWar.getDay() !== 3 && tWar.getDay() !== 6)) tWar.setDate(tWar.getDate()+1);
+            const dff = tWar - cet;
+            this.phaseCountdown = `${Math.floor(dff/36e5)}h ${Math.floor((dff%36e5)/6e4)}m`;
+        },
+
+        // --- OTHER HELPERS ---
+        updateStableTargets() {
+            this.stableTargets = this.processedAlliances
+                .filter(x => (x.faction||'').includes('Koubu'))
+                .sort((a,b) => a.liveRank - b.liveRank);
+        },
+        setupPlanner() {
+            const sortedKage = this.processedAlliances.filter(a => (a.faction||'').toLowerCase().includes('kage')).sort((a,b) => a.liveRank - b.liveRank);
+            const filtered = sortedKage.slice(this.simRange.start - 1, this.simRange.end);
+            this.planner = filtered.map(a => ({ kageId: a.id, kage: a, targetId: '', buildings: [], isZero: false, estStolen: 0 }));
+            this.savePlan();
+        },
+        toggleBuilding(idx, bIdx) {
+            const p = this.planner[idx]; p.isZero = false;
+            let current = [...p.buildings]; const pos = current.indexOf(bIdx);
+            if (pos > -1) current.splice(pos, 1); else current.push(bIdx);
+            p.buildings = current; this.calculateMatch(idx);
+        },
+        setZero(idx) {
+            const p = this.planner[idx]; p.isZero = !p.isZero;
+            if (p.isZero) p.buildings = []; this.calculateMatch(idx);
+        },
+        calculateMatch(idx) {
+            const p = this.planner[idx];
+            const target = this.processedAlliances.find(a => a.id === p.targetId);
+            if (!target || p.isZero) p.estStolen = 0;
+            else {
+                let pct = p.buildings.length > 0 ? 0 : 0.15;
+                p.buildings.forEach(b => pct += (b === 3 ? 0.06 : 0.03));
+                p.estStolen = Math.floor(target.lockStash * pct);
+            }
+            this.savePlan();
+        },
+        savePlan() { localStorage.setItem('kage_war_plan', JSON.stringify(this.planner)); },
+        async toggleAlliancePlayers(aId) {
+            if (this.alliancePlayers[aId]) { delete this.alliancePlayers[aId]; return; }
+            const { data } = await this.client.from('players').select('*').eq('alliance_id', aId).order('thp', {ascending: false});
+            this.alliancePlayers[aId] = data;
+        },
+        formatNum(v) { return Math.floor(v || 0).toLocaleString(); }
+    }
+}
