@@ -1,220 +1,235 @@
-window.warRoom = function() {
-    return {
-        // --- CONFIG ---
-        version: '9.3.1',
-        sbUrl: 'https://kjyikmetuciyoepbdzuz.supabase.co',
-        sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqeWlrbWV0dWNpeW9lcGJkenV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTMyNDUsImV4cCI6MjA4MjkyOTI0NX0.0bxEk7nmkW_YrlVsCeLqq8Ewebc2STx4clWgCfJus48',
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+    <title>S4WARS | COMMAND</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="war-logic.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        body { background: #020617; color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .glass { background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(51, 65, 85, 0.5); }
+        .btn-bldg { background: #1e293b; border: 1px solid #334155; color: #64748b; font-size: 10px; font-weight: 900; transition: all 0.1s; }
+        .btn-bldg.active { background: #0891b2 !important; border-color: #22d3ee !important; color: white !important; }
+        .nav-fixed { position: fixed; bottom: 0; left: 0; right: 0; background: #0f172a; border-top: 1px solid #334155; padding-bottom: env(safe-area-inset-bottom); z-index: 100; }
+        .tag-badge { background: rgba(34, 211, 238, 0.1); color: #22d3ee; padding: 2px 4px; border-radius: 4px; font-size: 10px; font-weight: 800; border: 1px solid rgba(34, 211, 238, 0.3); }
+        .global-card { border-left: 2px solid #6366f1; background: rgba(99, 102, 241, 0.05); }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body x-data="warRoom()" x-init="init()" class="pb-32">
 
-        // --- STATE ---
-        tab: 'warroom', loading: true, searchQuery: '',
-        alliances: [], processedAlliances: [], simAlliances: [],
-        kageGroups: [], koubuGroups: [], 
-        kageSimGroups: [], koubuSimGroups: [],
-        openGroups: [], alliancePlayers: {}, 
-        showGlobalMobile: false,
-        displayClock: '', phaseCountdown: '',
-        week: 1, seasonStart: new Date("2026-01-05T03:00:00+01:00"), 
-        planner: [], simRange: { start: 1, end: 20 },
-        stableTargets: [],
+    <!-- HEADER -->
+    <header class="sticky top-0 z-[60] glass mx-2 mt-2 p-3 flex justify-between items-center backdrop-blur-xl lg:max-w-[1400px] lg:mx-auto rounded-2xl">
+        <div class="flex items-center gap-2">
+            <div class="h-8 w-1 bg-red-600 rounded-full"></div>
+            <h1 class="text-lg font-black tracking-tighter text-white uppercase italic leading-none">Season 4</h1>
+        </div>
+        <div class="text-right">
+            <p class="text-[9px] font-black text-amber-500 uppercase italic" x-text="displayClock"></p>
+            <p class="text-lg font-mono font-black text-white leading-none" x-text="phaseCountdown"></p>
+        </div>
+    </header>
 
-        async init() {
-            this.client = supabase.createClient(this.sbUrl, this.sbKey);
-            
-            // 1. Determine Week immediately before any data processing
-            this.updateClockOnly(); 
+    <main class="p-3 lg:max-w-[1400px] lg:mx-auto">
 
-            // 2. Fetch Data
-            await this.fetchData();
-            
-            // 3. Setup Planner
-            const savedPlan = localStorage.getItem('kage_war_plan');
-            if (savedPlan) {
-                try {
-                    const parsed = JSON.parse(savedPlan);
-                    this.planner = parsed.map(p => ({
-                        ...p,
-                        buildings: p.buildings || [],
-                        kage: this.processedAlliances.find(a => a.id === p.kageId)
-                    })).filter(p => p.kage);
-                } catch(e) { this.setupPlanner(); }
-            } else { this.setupPlanner(); }
-
-            // 4. Start Intervals
-            setInterval(() => { this.updateClockOnly(); }, 1000);
-            setInterval(() => { 
-                if (this.tab !== 'sim' && this.tab !== 'results') {
-                    this.fetchData(); 
-                }
-            }, 30000); 
-        },
-
-        async fetchData() {
-            try {
-                const { data, error } = await this.client.from('war_master_view').select('*');
-                if (error) throw error;
-                this.alliances = data || [];
+        <!-- INTEL HUB -->
+        <div x-show="tab === 'warroom'" class="space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 
-                // Force calculations in strict order
-                this.refreshStashMath();
-                this.updateStableTargets();
-                this.loading = false;
-            } catch (e) { console.error("Fetch Error:", e); }
-        },
+                <!-- GLOBAL SIDEBAR (Minimized on Mobile) -->
+                <div class="lg:col-span-3 space-y-4">
+                    <div @click="showGlobalMobile = !showGlobalMobile" class="flex justify-between items-center px-2 cursor-pointer lg:cursor-default">
+                        <h3 class="text-[10px] font-black uppercase text-indigo-400 tracking-widest italic underline underline-offset-4">Global Standing</h3>
+                        <span class="lg:hidden text-slate-500 text-xs" x-text="showGlobalMobile ? '▲' : '▼'"></span>
+                    </div>
+                    
+                    <div x-show="showGlobalMobile || window.innerWidth >= 1024" class="glass rounded-2xl overflow-hidden max-h-[50vh] lg:max-h-[80vh] overflow-y-auto scrollbar-hide border-indigo-500/20" x-transition>
+                        <template x-for="a in processedAlliances.slice(0, 100)" :key="'global'+a.id">
+                            <div class="p-3 border-b border-slate-800 flex justify-between items-center global-card">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-[10px] font-black text-indigo-500" x-text="'#' + a.globalRank"></span>
+                                    <span class="text-[10px] font-bold text-white uppercase truncate w-24" x-text="a.name"></span>
+                                </div>
+                                <span class="text-[10px] font-mono font-black text-slate-400" x-text="formatNum(a.stash)"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
 
-        // --- PRE-CALCULATION ENGINE ---
-        calculateGroups(data, factionQuery) {
-            // Determine Step based on calculated week
-            // Week 1: 10, Week 2: 6, Week 3+: 3
-            const step = this.week === 1 ? 10 : (this.week === 2 ? 6 : 3);
+                <!-- FACTION BRACKETS -->
+                <div class="lg:col-span-9 space-y-6">
+                    <!-- EXPLANATION BOX -->
+                    <div class="glass p-4 rounded-2xl border-cyan-500/20 bg-cyan-500/5">
+                        <div class="flex items-center gap-2 mb-2">
+                            <h4 class="text-[10px] font-black uppercase text-cyan-400 tracking-widest">Scouting Brief</h4>
+                        </div>
+                        <p class="text-xs text-slate-300 leading-relaxed italic">
+                            Track live copper estimates and hourly rates. Click cards to view rosters. Brackets refresh based on current season week rules.
+                        </p>
+                    </div>
+
+                    <input type="text" x-model="searchQuery" placeholder="Filter intel by tag..." class="w-full bg-slate-900 border border-slate-800 p-4 rounded-2xl text-sm italic font-bold text-white outline-none">
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <template x-for="fData in [{name:'Kage', groups:kageGroups, color:'red'}, {name:'Koubu', groups:koubuGroups, color:'blue'}]" :key="fData.name">
+                            <div class="space-y-4">
+                                <h3 class="text-[10px] font-black uppercase tracking-widest px-2" :class="'text-'+fData.color+'-500'" x-text="fData.name + ' Standings'"></h3>
+                                <template x-for="g in fData.groups" :key="g.id">
+                                    <div class="space-y-2">
+                                        <div @click="openGroups.includes(g.id) ? openGroups = openGroups.filter(x=>x!==g.id) : openGroups.push(g.id)" class="flex justify-between p-3 bg-slate-900 rounded-xl border border-slate-800 cursor-pointer">
+                                            <span class="text-[10px] font-black uppercase text-slate-500" x-text="g.label"></span>
+                                            <span class="text-slate-600 text-xs" x-text="openGroups.includes(g.id) ? '▲' : '▼'"></span>
+                                        </div>
+                                        <div x-show="openGroups.includes(g.id)" class="grid grid-cols-1 gap-3">
+                                            <template x-for="a in g.alliances" :key="'hub'+a.id">
+                                                <div x-show="!searchQuery || a.tag.toLowerCase().includes(searchQuery.toLowerCase())" @click="toggleAlliancePlayers(a.id)" class="glass p-4 rounded-2xl border-l-4 cursor-pointer hover:border-cyan-500 transition-all" :class="fData.name === 'Kage' ? 'border-red-600' : 'border-blue-600'">
+                                                    <div class="flex justify-between items-start mb-3">
+                                                        <div class="min-w-0 flex-1">
+                                                            <div class="flex items-center gap-2 mb-1">
+                                                                <span class="tag-badge" x-text="a.tag"></span>
+                                                                <h4 class="text-sm font-black text-white uppercase truncate" x-text="a.name"></h4>
+                                                            </div>
+                                                            <div class="text-[9px] font-black uppercase text-slate-500 italic">S<span x-text="a.server"></span> | Rank #<span x-text="a.liveRank"></span></div>
+                                                        </div>
+                                                        <div class="text-right">
+                                                            <p class="text-[8px] font-black text-slate-500 uppercase italic">Live copper estimate</p>
+                                                            <p class="text-sm font-mono font-black text-white" x-text="formatNum(a.stash)"></p>
+                                                        </div>
+                                                    </div>
+                                                    <div class="bg-black/30 p-2 rounded-lg border border-slate-800 flex justify-between items-center text-[9px]">
+                                                        <div class="flex-1">
+                                                            <p class="text-[7px] text-slate-500 uppercase font-black">Top Player Power</p>
+                                                            <p class="font-bold text-white uppercase truncate"><span x-text="a.ace_name"></span> <span class="text-amber-500 ml-1" x-text="'('+formatNum(a.ace_thp)+')'"></span></p>
+                                                        </div>
+                                                        <div class="text-right border-l border-slate-800 pl-3 ml-3">
+                                                            <p class="text-[7px] text-slate-500 uppercase font-black italic">Hourly rate estimated</p>
+                                                            <p class="font-mono font-black text-cyan-400" x-text="'+'+formatNum(a.rate)+'/h'"></p>
+                                                        </div>
+                                                    </div>
+                                                    <div x-show="alliancePlayers[a.id]" class="mt-3 pt-3 border-t border-slate-800 space-y-1">
+                                                        <template x-for="p in alliancePlayers[a.id]" :key="p.id">
+                                                            <div class="flex justify-between text-[10px] font-mono"><span class="text-slate-400 uppercase" x-text="p.name"></span><span class="text-cyan-400 font-bold" x-text="formatNum(p.thp)"></span></div>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PLANNER TAB -->
+        <div x-show="tab === 'sim'" class="space-y-4" x-cloak>
+            <div class="glass p-6 rounded-2xl flex flex-col lg:flex-row gap-6">
+                <div class="flex-1 space-y-3">
+                    <h2 class="text-xl font-black text-white uppercase italic tracking-tighter underline decoration-red-600 underline-offset-4">War Command</h2>
+                    <div class="bg-black/40 p-4 rounded-xl border border-slate-800">
+                        <p class="text-xs text-slate-300 leading-relaxed italic">Assign targets to our Kage alliances. Calculations are based on the 03:00 Locked Stash. Press simulate to see the results.</p>
+                    </div>
+                </div>
+                <div class="lg:w-72 space-y-4">
+                    <div class="bg-slate-900 p-4 rounded-xl border border-slate-800">
+                        <p class="text-[10px] font-black text-slate-500 uppercase mb-2">Sim Range (Kage)</p>
+                        <div class="flex items-center gap-2">
+                            <input type="number" x-model="simRange.start" class="w-full bg-black p-2 text-xs text-center rounded text-white border border-slate-800">
+                            <span class="text-slate-600">-</span>
+                            <input type="number" x-model="simRange.end" class="w-full bg-black p-2 text-xs text-center rounded text-white border border-slate-800">
+                        </div>
+                        <button @click="setupPlanner()" class="w-full bg-red-600 mt-3 py-2 rounded-lg text-[10px] font-black uppercase">Load Range</button>
+                    </div>
+                    <button @click="runSimulation()" class="w-full bg-emerald-600 py-4 rounded-xl font-black uppercase shadow-lg">🚀 RUN SIMULATION</button>
+                </div>
+            </div>
             
-            const sortKey = (this.tab === 'results') ? 'simStash' : 'stash';
-            const sorted = data
-                .filter(a => (a.faction||'').toLowerCase().includes(factionQuery.toLowerCase()))
-                .sort((a,b) => b[sortKey] - a[sortKey]);
-            
-            const groups = [];
-            // Brackets 1-30
-            for (let i=0; i < sorted.length && i < 30; i+=step) {
-                groups.push({ 
-                    id: factionQuery + (Math.floor(i/step)+1), 
-                    label: `Rank ${i+1}-${Math.min(i+step, 30)}`, 
-                    alliances: sorted.slice(i, i+step).map((it, idx) => ({ ...it, factionRank: i+idx+1 })) 
-                });
-            }
-            // Bracket 31-100
-            if (sorted.length > 30) {
-                groups.push({
-                    id: factionQuery + '99',
-                    label: 'Rank 31-100',
-                    alliances: sorted.slice(30, 100).map((it, idx) => ({ ...it, factionRank: 31+idx }))
-                });
-            }
-            return groups;
-        },
+            <template x-for="(match, idx) in planner" :key="match.kageId">
+                <div class="glass p-4 rounded-xl border-l-4 border-red-600 grid grid-cols-1 lg:grid-cols-12 gap-3 items-center">
+                    <div class="lg:col-span-3 flex items-center gap-2">
+                        <span class="text-[10px] font-black text-slate-600" x-text="'#'+match.kage.liveRank"></span>
+                        <span class="tag-badge" x-text="match.kage.tag"></span>
+                        <span class="text-xs font-bold text-white truncate" x-text="match.kage.name"></span>
+                    </div>
+                    <div class="lg:col-span-4">
+                        <select x-model="match.targetId" @change="calculateMatch(idx)" class="w-full bg-slate-950 border border-slate-800 p-2 rounded text-[10px] text-white">
+                            <option value="">Select Koubu Target...</option>
+                            <template x-for="t in stableTargets" :key="t.id">
+                                <option :value="t.id" x-text="'['+t.tag+'] '+t.name + ' (#'+t.liveRank+')'"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div class="lg:col-span-3 flex gap-1">
+                        <template x-for="i in [0,1,2,3]"><button @click="toggleBuilding(idx, i)" :class="match.buildings.includes(i) ? 'active' : ''" class="btn-bldg w-8 h-8 rounded-lg" x-text="i < 3 ? 'W' : 'C'"></button></template>
+                        <button @click="p=planner[idx]; p.isZero=!p.isZero; if(p.isZero)p.buildings=[]; calculateMatch(idx)" :class="planner[idx].isZero ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-500'" class="w-10 h-8 rounded-lg text-[8px] font-black border border-slate-700 ml-2">ZERO</button>
+                    </div>
+                    <div class="lg:col-span-2 text-right"><p class="text-xs font-mono font-black text-emerald-400" x-text="formatNum(match.estStolen)"></p></div>
+                </div>
+            </template>
+        </div>
 
-        refreshStashMath() {
-            const now = new Date();
-            const cet = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
-            const lastLock = this.getPrevLock(cet);
-            const nextLock = this.getNextLock(cet);
-            const warEnd = this.getWarEndTime(cet);
-            const activeLock = cet >= warEnd ? nextLock : lastLock;
+        <!-- RESULTS TAB -->
+        <div x-show="tab === 'results'" class="space-y-6" x-cloak>
+            <div class="flex justify-between items-center">
+                <h2 class="text-2xl font-black text-white uppercase italic tracking-tighter">Simulated Ranking</h2>
+                <button @click="tab='sim'" class="bg-slate-800 px-4 py-2 rounded text-[10px] font-black text-white">← Edit Plan</button>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                <div class="lg:col-span-3 space-y-4">
+                    <h3 class="text-[10px] font-black uppercase text-indigo-400 italic">Global Sim Standing</h3>
+                    <div class="glass rounded-2xl max-h-[70vh] overflow-y-auto scrollbar-hide border-indigo-500/20">
+                        <template x-for="a in simAlliances.slice(0, 100)" :key="'simG'+a.id">
+                            <div class="p-3 border-b border-slate-800 flex justify-between items-center" :class="(a.faction||'').includes('Kage') ? 'border-l-2 border-red-500' : 'border-l-2 border-blue-500'">
+                                <span class="text-[10px] font-black text-white" x-text="'#'+a.globalSimRank"></span>
+                                <span class="text-[10px] font-bold text-slate-300 uppercase truncate w-24" x-text="a.name"></span>
+                                <p class="text-[10px] font-mono font-black text-white" x-text="formatNum(a.simStash)"></p>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+                <div class="lg:col-span-9 grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <template x-for="fData in [{name:'Kage', groups:kageSimGroups, color:'red'}, {name:'Koubu', groups:koubuSimGroups, color:'blue'}]" :key="'simF'+fData.name">
+                        <div class="space-y-4">
+                            <h3 class="text-xs font-black uppercase tracking-widest px-2" :class="'text-'+fData.color+'-500'" x-text="fData.name + ' Sim Brackets'"></h3>
+                            <template x-for="g in fData.groups" :key="'simG'+fData.name+g.id">
+                                <div class="space-y-2">
+                                    <div class="p-2 bg-slate-900/40 rounded-lg text-[10px] font-black text-slate-600 uppercase" x-text="g.label"></div>
+                                    <template x-for="a in g.alliances" :key="'simAlliance'+a.id">
+                                        <div class="glass p-3 rounded-xl flex justify-between items-center">
+                                            <div class="flex items-center gap-3">
+                                                <span class="text-[10px] font-black text-white" x-text="'#'+a.factionRank"></span>
+                                                <span class="tag-badge" x-text="a.tag"></span>
+                                                <span class="text-xs font-bold text-slate-300" x-text="a.name"></span>
+                                            </div>
+                                            <p class="text-xs font-mono font-black text-white" x-text="formatNum(a.simStash)"></p>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
 
-            let raw = this.alliances.map(a => {
-                let rate = Number(a.city_rate) > 0 ? Number(a.city_rate) : Number(a.observed_rate || 0);
-                const scoutTime = new Date(a.last_scout_time);
-                const hrsLock = (activeLock - scoutTime) / 3600000;
-                const hrsLive = (cet - scoutTime) / 3600000;
-                return { 
-                    ...a, 
-                    stash: Number(a.last_copper || 0) + (rate * hrsLive), 
-                    lockStash: Number(a.last_copper || 0) + (rate * hrsLock),
-                    rate: rate 
-                };
-            });
+    </main>
 
-            // Global Rank
-            raw.sort((a,b) => b.stash - a.stash).forEach((a, i) => a.globalRank = i + 1);
-
-            // Faction Rank
-            ['Kage no Sato', 'Koubu'].forEach(f => {
-                raw.filter(a => (a.faction||'').includes(f))
-                    .sort((a, b) => b.stash - a.stash)
-                    .forEach((a, i) => { a.liveRank = i + 1; });
-            });
-
-            this.processedAlliances = raw;
-            this.kageGroups = this.calculateGroups(this.processedAlliances, 'Kage');
-            this.koubuGroups = this.calculateGroups(this.processedAlliances, 'Koubu');
-        },
-
-        runSimulation() {
-            let simData = this.processedAlliances.map(a => ({ ...a, simStash: a.lockStash }));
-            this.planner.forEach(p => {
-                if (p.targetId && !p.isZero) {
-                    const usIdx = simData.findIndex(x => x.id === p.kageId);
-                    const themIdx = simData.findIndex(x => x.id === p.targetId);
-                    if (usIdx > -1) simData[usIdx].simStash += p.estStolen;
-                    if (themIdx > -1) simData[themIdx].simStash -= p.estStolen;
-                }
-            });
-            this.simAlliances = simData.sort((a,b) => b.simStash - a.simStash);
-            this.simAlliances.forEach((a, i) => a.globalSimRank = i + 1);
-            
-            this.kageSimGroups = this.calculateGroups(this.simAlliances, 'Kage');
-            this.koubuSimGroups = this.calculateGroups(this.simAlliances, 'Koubu');
-            this.tab = 'results';
-        },
-
-        // --- TIME CALCULATORS ---
-        getPrevLock(n) {
-            let t = new Date(n); t.setHours(3,0,0,0);
-            while (t > n || (t.getDay() !== 1 && t.getDay() !== 4)) t.setDate(t.getDate()-1);
-            return t;
-        },
-        getNextLock(n) {
-            let t = new Date(n); t.setHours(3,0,0,0);
-            while (t <= n || (t.getDay() !== 1 && t.getDay() !== 4)) t.setDate(t.getDate()+1);
-            return t;
-        },
-        getWarEndTime(n) {
-            let t = new Date(n); t.setHours(18,0,0,0);
-            while (t.getDay() !== 3 && t.getDay() !== 6) t.setDate(t.getDate()-1);
-            return t;
-        },
-        updateClockOnly() {
-            const cet = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Paris"}));
-            this.displayClock = cet.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'});
-            
-            // Strict Week Calculation
-            const diffDays = Math.floor((cet - this.seasonStart) / (1000 * 60 * 60 * 24));
-            this.week = Math.max(1, Math.floor(diffDays / 7) + 1);
-
-            let tWar = new Date(cet); tWar.setHours(15,30,0,0);
-            while (tWar <= cet || (tWar.getDay() !== 3 && tWar.getDay() !== 6)) tWar.setDate(tWar.getDate()+1);
-            const dff = tWar - cet;
-            this.phaseCountdown = `${Math.floor(dff/36e5)}h ${Math.floor((dff%36e5)/6e4)}m`;
-        },
-
-        // --- OTHER HELPERS ---
-        updateStableTargets() {
-            this.stableTargets = this.processedAlliances
-                .filter(x => (x.faction||'').includes('Koubu'))
-                .sort((a,b) => a.liveRank - b.liveRank);
-        },
-        setupPlanner() {
-            const sortedKage = this.processedAlliances.filter(a => (a.faction||'').toLowerCase().includes('kage')).sort((a,b) => a.liveRank - b.liveRank);
-            const filtered = sortedKage.slice(this.simRange.start - 1, this.simRange.end);
-            this.planner = filtered.map(a => ({ kageId: a.id, kage: a, targetId: '', buildings: [], isZero: false, estStolen: 0 }));
-            this.savePlan();
-        },
-        toggleBuilding(idx, bIdx) {
-            const p = this.planner[idx]; p.isZero = false;
-            let current = [...p.buildings]; const pos = current.indexOf(bIdx);
-            if (pos > -1) current.splice(pos, 1); else current.push(bIdx);
-            p.buildings = current; this.calculateMatch(idx);
-        },
-        setZero(idx) {
-            const p = this.planner[idx]; p.isZero = !p.isZero;
-            if (p.isZero) p.buildings = []; this.calculateMatch(idx);
-        },
-        calculateMatch(idx) {
-            const p = this.planner[idx];
-            const target = this.processedAlliances.find(a => a.id === p.targetId);
-            if (!target || p.isZero) p.estStolen = 0;
-            else {
-                let pct = p.buildings.length > 0 ? 0 : 0.15;
-                p.buildings.forEach(b => pct += (b === 3 ? 0.06 : 0.03));
-                p.estStolen = Math.floor(target.lockStash * pct);
-            }
-            this.savePlan();
-        },
-        savePlan() { localStorage.setItem('kage_war_plan', JSON.stringify(this.planner)); },
-        async toggleAlliancePlayers(aId) {
-            if (this.alliancePlayers[aId]) { delete this.alliancePlayers[aId]; return; }
-            const { data } = await this.client.from('players').select('*').eq('alliance_id', aId).order('thp', {ascending: false});
-            this.alliancePlayers[aId] = data;
-        },
-        formatNum(v) { return Math.floor(v || 0).toLocaleString(); }
-    }
-}
+    <!-- NAVIGATION -->
+    <nav class="nav-fixed flex justify-around p-4">
+        <button @click="tab='warroom'" :class="tab==='warroom'?'text-cyan-400':'text-slate-600'" class="flex flex-col items-center gap-1 transition-all">
+            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+            <span class="text-[8px] font-black uppercase">Intel Hub</span>
+        </button>
+        <button @click="tab='sim'" :class="tab==='sim'?'text-red-500':'text-slate-600'" class="flex flex-col items-center gap-1 transition-all">
+            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M21 3L3 10.53v.98l7.51 3.22L13.74 22h.98L22 3.5 21 3z"/></svg>
+            <span class="text-[8px] font-black uppercase">War Table</span>
+        </button>
+    </nav>
+</body>
+</html>
